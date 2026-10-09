@@ -1,0 +1,8 @@
+## Interface: 11509, 20506, 16001
+## Title: ThreeCrownsGuild
+## Notes: Online roster and shared chat (/tcg) across several guilds on one realm.
+## Author: luttm
+## Version: @project-version@
+## SavedVariables: GuildFriendsDB
+
+ThreeCrownsGuild.lua

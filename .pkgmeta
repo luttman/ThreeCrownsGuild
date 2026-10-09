@@ -1,0 +1,6 @@
+package-as: ThreeCrownsGuild
+
+ignore:
+  - .github
+  - .gitignore
+  - tests
