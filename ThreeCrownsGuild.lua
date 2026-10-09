@@ -1,3 +1,6 @@
+local interfaceVersion = select(4, GetBuildInfo())
+if interfaceVersion < 16000 or interfaceVersion >= 17000 then return end
+
 -- ThreeCrownsGuild: online roster + shared chat (/tcg) across several guilds on one realm.
 -- Config is read from Guild Info (like GreenWall), identical in every guild:
 --   TCGc:channel:password

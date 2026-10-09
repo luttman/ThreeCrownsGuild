@@ -1,6 +1,10 @@
 # ThreeCrownsGuild
 
-Online-lista och gemensam chatt (`/tcg`) över flera guilds på samma realm.
+Online-lista och gemensam chatt (`/tcg`) över flera guilds på samma realm, endast för WoW Forever.
+
+Addonet startar bara i Forever-klienter (Interface `16xxx`). Classic Era, TBC,
+Wrath, Cataclysm, MoP och Retail stöds inte. Release-paketet märks endast för
+Forever på CurseForge.
 
 ## Installera
 Kopiera/länka mappen till `Interface\AddOns\ThreeCrownsGuild` (mappnamnet måste matcha `.toc`).
