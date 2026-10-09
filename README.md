@@ -1,5 +1,19 @@
 # ThreeCrownsGuild
 
+**TBC-stöd (0.3.0):** addonet startar i både WoW Forever och TBC
+(Interface `16001` och `20506`). TBC-delen är testad med simulerad klient men
+ännu inte verifierad i spelet.
+
+TBC-testet använder vanliga meddelanden med prefixet `GF1#` i den konfigurerade
+transportkanalen, eftersom addonmeddelanden till `CHANNEL` nekas av testklienten.
+Kanalen döljs av addonet; en kanalmedlem utan addonet kan se transportmeddelandena.
+TBC-synkningen skickar när du skriver i guildchatten, inte från mottagna chattevent.
+Online-närvaro i TBC skickas automatiskt med dolda addon-viskningar till medlemmar
+i transportkanalen, även när spelaren är tyst. Alla deltagare behöver denna testversion.
+Uppdateringar skickas ungefär var fjärde minut; inaktuella spelare tas bort efter tio minuter. Den som kommer online presenterar sig för alla och får svar direkt av var och en (ingen bred omsändning), och kanalens medlemslista sparas som en kopia så att din valda kanal i kanalfönstret lämnas orörd.
+Addonet hämtar kanalens medlemslista i bakgrunden när Blizzards kanalfönster är stängt.
+Bakgrundsevent skickar inga vanliga kanalmeddelanden.
+
 Online-lista och gemensam chatt (`/tcg`) över flera guilds på samma realm, endast för WoW Forever.
 
 Addonet startar bara i Forever-klienter (Interface `16xxx`). Classic Era, TBC,
@@ -30,14 +44,14 @@ Officerchatt, viskningar och meddelanden från spelare utan addonet skickas inte
 Alla deltagare behöver version 0.2.0 eller senare för guildsynkningen.
 
 `/tc` och `/tcg` fungerar likadant. Den vanliga guildchatten visar meddelanden
-från din egen guild; andra guildars meddelanden visas som `[TCG]` i chattfönstret
+från din egen guild; andra guildars meddelanden visas med guildtagg och spelarnamn i chattfönstret
 och i addonets fönster. De skickas inte vidare till serverns guildchatt.
 
 | | |
 |---|---|
 | `/tc sync on\|off` | slå på/stäng av automatisk synkning av egna guildmeddelanden |
 | `/tcg` | öppna/stäng fönstret |
-| `/tcg text` | skriv till alla guilds (visas som `[TCG] [TAG] Namn: text`) |
+| `/tcg text` | skriv till alla guilds (visas som `[TAG] Namn: text`) |
 | `/tcg tag on\|off` | visa guild-tagg i chatten |
 | `/tcg echo on\|off` | visa `/tcg` även i vanliga chattfönstret |
 | `/tcg surname on\|off` | visa/dölj efternamn (visas som standard) |

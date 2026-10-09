@@ -24,7 +24,7 @@ assert(nick("Anna Svensson") == "Anna")
 db.surname = true
 assert(nick("Anna Andersson") == "Anna(Ankan)")
 assert(render({ name = "Anna Andersson", msg = "Hej" })
-    == "[TCG] |Hplayer:Anna Andersson|hAnna(Ankan)|h: Hej")
+    == "|Hplayer:Anna Andersson|hAnna(Ankan)|h: Hej")
 db.nicks["Anna Andersson"] = nil
 assert(nick("Anna Andersson") == "Anna Andersson")
 print("Name display checks passed.")
