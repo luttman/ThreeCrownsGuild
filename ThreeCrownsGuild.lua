@@ -240,12 +240,12 @@ refreshChat = function()
     ThreeCrownsGuild_SyncBar()
 end
 
-local function addChat(tag, name, class, msg)
+local function addChat(tag, name, class, msg, guildMessage)
     local rec = { tag = tag, name = name, class = class, msg = msg }
     tinsert(db.history, rec)
     while #db.history > HISTORY_MAX do tremove(db.history, 1) end
     if chat then chat:AddMessage(render(rec)); ThreeCrownsGuild_SyncBar() end
-    if db.echo then DEFAULT_CHAT_FRAME:AddMessage(render(rec)) end
+    if db.echo and not (guildMessage and tag == myTag()) then DEFAULT_CHAT_FRAME:AddMessage(render(rec)) end
 end
 
 local function sendChat(msg)
@@ -259,12 +259,53 @@ local function sendChat(msg)
     end
 end
 
+local function syncGuildChat(msg, guid)
+    if not db or not db.sync or secret(msg) or secret(guid) or guid ~= UnitGUID("player") then return end
+    local tag = myTag()
+    if not tag or msg == "" then return end
+    local _, class = UnitClass("player")
+    local payload = class .. ";" .. #msg .. ";" .. msg
+    local size = 250 - #("G#" .. tag .. "#")
+    if size <= #(class .. ";" .. #msg .. ";") or #msg > 4096 then return end
+    -- Split by bytes, then reassemble before display to preserve UTF-8 and links.
+    for offset = 1, #payload, size do
+        if not send(offset == 1 and "G" or "g", payload:sub(offset, offset + size - 1)) then
+            print(GREEN .. "[TCG]|r Guild message could not be synced. Check /tc status.")
+            return
+        end
+    end
+    addChat(tag, UnitName("player"), class, msg, true)
+end
+
+local guildParts = {}
 local function onAddonMsg(text, sender)
     local kind, tag, body = strsplit("#", text, 3)
     if not tag then return end
     local name = Ambiguate(sender, "none")
     rx[kind] = (rx[kind] or 0) + 1
-    if kind == "C" then
+    if kind == "G" or kind == "g" then
+        if name == UnitName("player") then return end
+        if kind == "G" then
+            local class, length, msg = strsplit(";", body or "", 3)
+            length = tonumber(length)
+            guildParts[sender] = nil
+            if not class or not msg or not length or length < 1 or length > 4096 or length % 1 ~= 0 then return end
+            guildParts[sender] = { tag = tag, class = class, length = length, msg = msg, time = GetTime() }
+        else
+            local part = guildParts[sender]
+            if not part or part.tag ~= tag or GetTime() - part.time > 10 then
+                guildParts[sender] = nil
+                return
+            end
+            part.msg = part.msg .. (body or "")
+        end
+        local part = guildParts[sender]
+        if #part.msg >= part.length then
+            guildParts[sender] = nil
+            if #part.msg == part.length then addChat(tag, name, part.class, part.msg, true) end
+        end
+        return
+    elseif kind == "C" then
         if name == UnitName("player") then return end -- already shown locally on send
         local class, msg = strsplit(";", body or "", 2)
         local p = peers[name] or { level = 0, zone = "" }
@@ -443,6 +484,9 @@ local function reloadConfig()
 end
 
 local function tick()
+    for sender, part in pairs(guildParts) do
+        if GetTime() - part.time > 10 then guildParts[sender] = nil end
+    end
     for name, p in pairs(peers) do
         if GetTime() - p.seen > EXPIRE then peers[name] = nil end
     end
@@ -471,9 +515,11 @@ end
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_LOGOUT", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE",
-    "ZONE_CHANGED_NEW_AREA", "CHAT_MSG_ADDON", "ADDON_LOADED" }) do ev:RegisterEvent(e) end
+    "ZONE_CHANGED_NEW_AREA", "CHAT_MSG_ADDON", "CHAT_MSG_GUILD", "ADDON_LOADED" }) do ev:RegisterEvent(e) end
 ev:SetScript("OnEvent", function(_, event, ...)
-    if event == "CHAT_MSG_ADDON" then
+    if event == "CHAT_MSG_GUILD" then
+        syncGuildChat(select(1, ...), select(12, ...))
+    elseif event == "CHAT_MSG_ADDON" then
         local prefix, text, dist, sender = ...
         if secret(text) or secret(sender) then return end
         if prefix == PFX and dist == "CHANNEL" then onAddonMsg(text, sender) end
@@ -486,6 +532,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
         RegisterPrefix(PFX)
         if db.tag == nil then db.tag = true end
         if db.echo == nil then db.echo = true end
+        if db.sync == nil then db.sync = true end
         if db.surname == nil then db.surname = true end
         db.history = db.history or {}
         db.nicks = db.nicks or {}
@@ -505,10 +552,11 @@ ev:SetScript("OnEvent", function(_, event, ...)
 end)
 
 SLASH_THREECROWNSGUILD1 = "/tcg"
+SLASH_THREECROWNSGUILD2 = "/tc"
 SlashCmdList.THREECROWNSGUILD = function(msg)
     msg = strtrim(msg)
     local key, val = msg:lower():match("^(%a+) (o[nf]+)$")
-    if (key == "tag" or key == "echo" or key == "surname") and (val == "on" or val == "off") then
+    if (key == "tag" or key == "echo" or key == "surname" or key == "sync") and (val == "on" or val == "off") then
         db[key] = (val == "on")
         if key == "surname" then ThreeCrownsGuild_Refresh(); refreshChat() end
         print(GREEN .. "[TCG]|r " .. key .. " " .. val)

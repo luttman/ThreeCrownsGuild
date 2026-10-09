@@ -21,6 +21,7 @@ jobs:
           luac5.1 -p ThreeCrownsGuild.lua
           lua5.1 tests/name_display.lua
           lua5.1 tests/forever_only.lua
+          lua5.1 tests/guild_sync.lua
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

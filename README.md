@@ -20,8 +20,22 @@ TCGp:Guild Två:G2
 `TCGp` = exakt guild-namn + tagg, en rad per guild (inkl. din egen). Prefixet är `TCG`, så det krockar inte med GreenWall. Äldre `GFc:`/`GFp:` och `MGc:`/`MGp:` fungerar också.
 
 ## Användning
+
+Skriv som vanligt i guildchatten (`/g`). Addonet delar dina egna meddelanden med
+de anslutna guildarnas addon-användare. Synkningen är på som standard. Stäng av
+med `/tc sync off` och slå på igen med `/tc sync on`; valet sparas för kontot.
+Avstängningen stoppar automatisk vidarebefordran av dina egna guildmeddelanden.
+Du kan fortfarande läsa delade meddelanden och skriva manuellt med `/tc text`.
+Officerchatt, viskningar och meddelanden från spelare utan addonet skickas inte vidare.
+Alla deltagare behöver version 0.2.0 eller senare för guildsynkningen.
+
+`/tc` och `/tcg` fungerar likadant. Den vanliga guildchatten visar meddelanden
+från din egen guild; andra guildars meddelanden visas som `[TCG]` i chattfönstret
+och i addonets fönster. De skickas inte vidare till serverns guildchatt.
+
 | | |
 |---|---|
+| `/tc sync on\|off` | slå på/stäng av automatisk synkning av egna guildmeddelanden |
 | `/tcg` | öppna/stäng fönstret |
 | `/tcg text` | skriv till alla guilds (visas som `[TCG] [TAG] Namn: text`) |
 | `/tcg tag on\|off` | visa guild-tagg i chatten |
