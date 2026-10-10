@@ -49,6 +49,9 @@ for _, client in ipairs({ "forever", "tbc" }) do
         return unpack(parts)
     end
     env.JoinChannelByName = function() end
+    env.UIParent, env.InCombatLockdown = {}, function() return false end
+    local worldClick
+    env.WorldFrame = { HookScript = function(_, name, handler) if name == "OnMouseDown" then worldClick = handler end end }
     env.tinsert, env.tremove = table.insert, table.remove
     env.C_Timer = { NewTicker = function(_, callback) ticker = callback end,
         After = function(_, callback) callback() end }
@@ -74,7 +77,9 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.CreateFrame = function()
         local frame = { events = {} }
         function frame:RegisterEvent(event) self.events[event] = true end
-        function frame:SetScript(_, handler) self.handler = handler end
+        function frame:SetScript(name, handler) self.handler = handler; self.scripts = self.scripts or {}; self.scripts[name] = handler end
+        function frame:EnableKeyboard() end
+        function frame:SetPropagateKeyboardInput() end
         frames[#frames + 1] = frame
         return frame
     end
@@ -144,7 +149,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
         local function presence(sender, message)
             frame.handler(frame, "CHAT_MSG_ADDON", "GF1", message or "P#G1#70;MAGE;Test Zone", "WHISPER", sender)
         end
-        presence("Stranger-Realm")
+        presence("Stranger-Realm", "P#NotOurs#70;MAGE;Test Zone")
         presence("Bob-Realm", "P#Unknown#70;MAGE;Test Zone")
         assert(not peers.Stranger and not peers.Bob, "Presence accepted outside configured channel/guilds")
         presence("Bob-Realm")
@@ -196,11 +201,8 @@ for _, client in ipairs({ "forever", "tbc" }) do
         assert(upvalue(upvalue(frame.handler, "onAddonMsg"), "lastAnnounce") == 1900,
             "Presence kept retrying when alone in the channel")
         roster = { "Anna-Realm", "Bob-Realm", "Carl-Realm" }
-        presence("Carl-Realm") -- not in our copy of the roster yet: dropped, roster re-read soon
-        assert(not peers.Carl, "Unknown sender accepted")
-        time = time + 11
-        presence("Carl-Realm")
-        assert(peers.Carl, "New channel member not accepted after the roster refresh")
+        presence("Carl-Realm") -- the channel roster copy is incomplete: it must not decide who is heard
+        assert(peers.Carl and peers.Carl.tag == "G1", "Member missing from the roster copy was dropped")
         roster = { "Anna-Realm", "Bob-Realm" }
         hardwareInput = true
         env.SendChatMessage("Guild hello", "GUILD")
@@ -215,5 +217,76 @@ for _, client in ipairs({ "forever", "tbc" }) do
         frame.handler(frame, "PLAYER_LOGOUT")
         assert(blockedCalls == 0, "Logout attempted a protected send")
     end
+
+    if client == "tbc" then
+        -- an active player announces with ONE channel message on a key press or click
+        local keyFrame
+        for _, candidate in ipairs(frames) do
+            if candidate.scripts and candidate.scripts.OnKeyDown then keyFrame = candidate end
+        end
+        assert(keyFrame and worldClick, "Input hooks were not installed")
+        local channelBefore, whispersBefore = #sent, #whispers
+        time = time + 400
+        hardwareInput = true
+        keyFrame.scripts.OnKeyDown(keyFrame, "W")
+        hardwareInput = false
+        assert(#sent == channelBefore + 1 and sent[#sent]:find("^GF1#P#G1#"), "Key press did not announce on the channel")
+        assert(#whispers == whispersBefore, "Key press announced by whisper")
+        hardwareInput = true
+        keyFrame.scripts.OnKeyDown(keyFrame, "W") -- not due again yet
+        worldClick()
+        hardwareInput = false
+        assert(#sent == channelBefore + 1, "Input announced twice within the heartbeat")
+    end
+
+    -- LFM: a centered notice for incoming requests, role detection on send
+    local texts = {}
+    local function widget()
+        return setmetatable({}, { __index = function(_, key)
+            if not key:match("^%u") or key == "TitleText" then return nil end -- methods are capitalized, fields are not
+            return function(self, value)
+                if key == "SetText" then texts[#texts + 1] = value end
+                return self
+            end
+        end })
+    end
+    env.CreateFrame = widget
+    env.UISpecialFrames, env.STANDARD_TEXT_FONT, env.UIFrameFadeOut = {}, "font", function() end
+    env.UnitExists, env.IsInInstance, env.PlaySound = function() return true end, function() return false end, function() end
+    local function lfmIn(body)
+        if client == "forever" then
+            frame.handler(frame, "CHAT_MSG_ADDON", "GF1", "L#G2#" .. body, "CHANNEL", "Bob-Realm")
+        else
+            frame.handler(frame, "CHAT_MSG_CHANNEL", "GF1#L#G2#" .. body, "Bob-Realm", nil, nil, nil, nil, nil, nil, "TestChannel")
+        end
+    end
+    time = 5000
+    lfmIn("1,0,2;Deadmines;Bob,Cid")
+    local notice = texts[#texts]
+    assert(notice and notice:find("Bob, Cid", 1, true) and notice:find("are looking for", 1, true)
+        and notice:find("Tank + 2 DPS", 1, true) and notice:find("Deadmines", 1, true)
+        and not notice:find("/w", 1, true) and notice:find("^|cffaaaaaa%[G2%]"), client .. ": LFM notice missing or wrong")
+    local count = #texts
+    lfmIn("0,1,0;Spam;Bob")
+    assert(#texts == count, client .. ": LFM spam from one sender was shown")
+    time = time + 11
+    lfmIn("0,1,0;|cffff0000Evil|r;|HBob")
+    assert(#texts == count + 1 and not texts[#texts]:find("|cffff0000", 1, true), client .. ": LFM text not sanitized")
+    time = time + 11
+    env.SlashCmdList.THREECROWNSGUILD("lfm off")
+    lfmIn("1,0,0;Hidden;Bob")
+    assert(#texts == count + 1, client .. ": LFM shown while muted")
+    env.SlashCmdList.THREECROWNSGUILD("lfm on")
+    env.SlashCmdList.THREECROWNSGUILD("lfm") -- dialog opens without errors
+    local before = #sent
+    hardwareInput = true
+    env.SlashCmdList.THREECROWNSGUILD("lfm Karazhan")
+    hardwareInput = false
+    assert(#sent == before + 1 and sent[#sent]:find("L#G1#1,1,2;Karazhan;Anna", 1, true), client .. ": LFM not sent with detected roles")
+    assert(texts[#texts]:find("Karazhan", 1, true), client .. ": sender got no confirmation notice")
+    hardwareInput = true
+    env.SlashCmdList.THREECROWNSGUILD("lfm Again")
+    hardwareInput = false
+    assert(#sent == before + 1, client .. ": LFM sent twice within 30 seconds")
 end
 print("Full addon startup and slash command checks passed (Forever + TBC).")

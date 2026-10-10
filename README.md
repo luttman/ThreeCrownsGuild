@@ -1,24 +1,16 @@
 # ThreeCrownsGuild
 
-**TBC-stöd (0.3.0):** addonet startar i både WoW Forever och TBC
-(Interface `16001` och `20506`). TBC-delen är testad med simulerad klient men
-ännu inte verifierad i spelet.
+Online-lista och gemensam chatt (`/tcg`) över flera guilds på samma realm.
+Fungerar i WoW Forever (Interface `16xxx`) och TBC Anniversary (`20xxx`). Classic Era, Wrath,
+Cataclysm, MoP och Retail stöds inte. Alla deltagare behöver samma version.
 
-TBC-testet använder vanliga meddelanden med prefixet `GF1#` i den konfigurerade
-transportkanalen, eftersom addonmeddelanden till `CHANNEL` nekas av testklienten.
-Kanalen döljs av addonet; en kanalmedlem utan addonet kan se transportmeddelandena.
-TBC-synkningen skickar när du skriver i guildchatten, inte från mottagna chattevent.
-Online-närvaro i TBC skickas automatiskt med dolda addon-viskningar till medlemmar
-i transportkanalen, även när spelaren är tyst. Alla deltagare behöver denna testversion.
-Uppdateringar skickas ungefär var fjärde minut; inaktuella spelare tas bort efter tio minuter. Den som kommer online presenterar sig för alla och får svar direkt av var och en (ingen bred omsändning), och kanalens medlemslista sparas som en kopia så att din valda kanal i kanalfönstret lämnas orörd.
-Addonet hämtar kanalens medlemslista i bakgrunden när Blizzards kanalfönster är stängt.
-Bakgrundsevent skickar inga vanliga kanalmeddelanden.
-
-Online-lista och gemensam chatt (`/tcg`) över flera guilds på samma realm, endast för WoW Forever.
-
-Addonet startar bara i Forever-klienter (Interface `16xxx`). Classic Era, TBC,
-Wrath, Cataclysm, MoP och Retail stöds inte. Release-paketet märks endast för
-Forever på CurseForge.
+**TBC:** klienten tillåter inte addonmeddelanden till kanaler och bara spelarinput för
+kanalchatt, så addonet använder vanliga meddelanden med prefixet `GF1#` i den dolda
+transportkanalen (kanalen döljs; en kanalmedlem utan addonet kan se meddelandena).
+Chatt och LFM skickas när du skriver eller klickar. Närvaro skickas som ett kanalmeddelande
+vid tangenttryck eller klick (ungefär var fjärde minut) och som viskningar när du står still.
+Den som kommer online får direkta svar av de andra. Inaktuella spelare tas bort efter tio
+minuter. TBC-delen är ännu inte fullt verifierad i spelet.
 
 ## Installera
 Kopiera/länka mappen till `Interface\AddOns\ThreeCrownsGuild` (mappnamnet måste matcha `.toc`).
@@ -55,6 +47,9 @@ och i addonets fönster. De skickas inte vidare till serverns guildchatt.
 | `/tcg tag on\|off` | visa guild-tagg i chatten |
 | `/tcg echo on\|off` | visa `/tcg` även i vanliga chattfönstret |
 | `/tcg surname on\|off` | visa/dölj efternamn (visas som standard) |
+| `/tcg lfm` | öppna LFM-dialogen (samma som knappen **LFM** i fönstret) |
+| `/tcg lfm Dungeon` | skicka direkt med automatiskt upptäckta roller |
+| `/tcg lfm on\|off` | visa/dölj LFM-notiser från andra guilds |
 | `/tcg who` | uppdatera online-listan |
 | `/tcg status` | felsökning |
 
@@ -93,3 +88,13 @@ git push origin v0.1.1
 
 En vanlig push uppdaterar koden på GitHub. Versionstaggen startar publiceringen
 till CurseForge automatiskt när inställningarna ovan finns.
+
+## LFM (letar fler till gruppen)
+
+Tryck på **LFM** i fönstret (eller `/tcg lfm`). Dialogen fylls i med vilka roller gruppen saknar
+(en 5-mannagrupp: 1 tank, 1 healer, 3 DPS) och kan ändras genom att klicka på rollknapparna.
+Ange dungeon och skicka: alla guilds får en notis mitt på skärmen, `Namn1, Namn2 are looking for
+Healer + 2 DPS` med dungeon och guild-tagg. Notisen visas även i chatten med klickbart namn.
+Roller tas från gruppens tilldelade roller om klienten har dem, annars gissas de (Priest = healer,
+övriga DPS), så kontrollera dialogen. Högst ett utskick per 30 sekunder.
+

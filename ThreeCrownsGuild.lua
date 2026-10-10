@@ -23,6 +23,7 @@ local SendChannelChat = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatM
 local RegisterPrefix = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or RegisterAddonMessagePrefix
 local joinAt, lastAnnounce, lastQuery, replyPending = 0, 0, 0, false
 local warmup, lastResult, rx = 3, "-", {} -- warmup: a few quick announces after joining (first ones can be dropped)
+local stats = { sent = 0, recv = 0, noConfig = 0 } -- TBC whisper transport, shown by /tcg status
 local f, chat, pool, content -- UI, created on first open
 
 local function parseConfig(text)
@@ -112,6 +113,7 @@ local function whisper(target, kind, body)
     if not tag then return end
     local ok, res = pcall(SendAddon, PFX, (("%s#%s#%s"):format(kind, tag, body or "")):sub(1, 250), "WHISPER", target)
     lastResult = kind .. "=" .. tostring(ok and res)
+    stats.sent = stats.sent + 1
     if not ok then print(GREEN .. "[TCG]|r send failed: " .. tostring(res)) end
 end
 
@@ -123,8 +125,11 @@ local function send(kind, body)
     local id, tag = chanId(), myTag()
     if not (id and tag) then return false end
     local payload = (("%s#%s#%s"):format(kind, tag, body or "")):sub(1, 250)
-    if isTBC and presence then
-        local channel, queued, members = cfg.channel, 0, channelMembers()
+    -- Idle: whisper each channel member. During player input: one channel message reaches everybody.
+    if isTBC and presence and not sendingFromInput then
+        local channel, queued, members = cfg.channel, 0, {}
+        for name, target in pairs(channelMembers()) do members[name] = target end
+        for name, p in pairs(peers) do members[name] = members[name] or p.from or name end
         for name, target in pairs(members) do
             if name ~= UnitName("player") then
                 C_Timer.After(queued * 0.2, function()
@@ -369,6 +374,142 @@ local function chatInput(callback, ...)
     if not ok then error(err) end
 end
 
+-- ---------------------------------------------------------------- LFM
+-- One button tells every guild which roles the current party is still missing.
+-- Kind L, body: <tank>,<healer>,<dps>;<dungeon>;<name,name,...>
+local ROLE = { TANK = "tank", HEALER = "healer", DAMAGER = "dps" }
+local lastLFM, lastLFMFrom = -math.huge, {}
+local toast, lfmDialog
+
+local function clean(text) return (tostring(text or ""):gsub("[|;#]", "")) end
+
+-- Role assigned in the group if the client has roles, otherwise a guess (the dialog lets the player correct it).
+local function roleOf(unit)
+    local assigned = UnitGroupRolesAssigned and ROLE[UnitGroupRolesAssigned(unit)]
+    if assigned then return assigned end
+    local _, class = UnitClass(unit)
+    return class == "PRIEST" and "healer" or "dps"
+end
+
+-- Returns the missing tank/healer/dps for a 5-man party, and the member names.
+local function missingRoles()
+    local have, names = { tank = 0, healer = 0, dps = 0 }, {}
+    local units = { "player" }
+    for i = 1, GetNumSubgroupMembers and GetNumSubgroupMembers() or 0 do units[#units + 1] = "party" .. i end
+    for _, unit in ipairs(units) do
+        if UnitExists(unit) then
+            local role = roleOf(unit)
+            have[role] = have[role] + 1
+            names[#names + 1] = UnitName(unit)
+        end
+    end
+    return math.max(0, 1 - have.tank), math.max(0, 1 - have.healer), math.max(0, 3 - have.dps), names
+end
+
+local function needsText(tank, healer, dps)
+    local parts = {}
+    if tank > 0 then parts[#parts + 1] = "Tank" end
+    if healer > 0 then parts[#parts + 1] = "Healer" end
+    if dps > 0 then parts[#parts + 1] = dps .. " DPS" end
+    return table.concat(parts, " + ")
+end
+
+local function showToast(text)
+    if not toast then
+        toast = CreateFrame("Frame", nil, UIParent)
+        toast:SetSize(900, 100); toast:SetPoint("CENTER", 0, 150)
+        toast:SetFrameStrata("FULLSCREEN_DIALOG"); toast:EnableMouse(false)
+        toast.text = toast:CreateFontString(nil, "OVERLAY")
+        toast.text:SetFont(STANDARD_TEXT_FONT, 26, "OUTLINE")
+        toast.text:SetAllPoints(); toast.text:SetJustifyH("CENTER")
+    end
+    toast.text:SetText(text)
+    toast:SetAlpha(1); toast:Show()
+    toast.token = (toast.token or 0) + 1
+    local token = toast.token
+    C_Timer.After(8, function() if toast.token == token then UIFrameFadeOut(toast, 1.5, 1, 0) end end)
+end
+
+local function announceLFM(tag, name, tank, healer, dps, dungeon, names)
+    local who = names ~= "" and names or name
+    local needs = needsText(tank, healer, dps)
+    showToast(("|cffaaaaaa[%s]|r |cff40ff40%s|r %s looking for |cffffd100%s|r\n%s"):format(
+        tag, who, who:find(",") and "are" or "is", needs, dungeon))
+    DEFAULT_CHAT_FRAME:AddMessage(("%s[LFM] [%s] |Hplayer:%s|h[%s]|h: %s for %s (%s)"):format(
+        GREEN, tag, name, name, needs, dungeon, who))
+    pcall(PlaySound, SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959)
+end
+
+local function sendLFM(dungeon, tank, healer, dps)
+    dungeon = strtrim(clean(dungeon))
+    if dungeon == "" then print(GREEN .. "[TCG]|r LFM: enter a dungeon name."); return false end
+    if tank + healer + dps == 0 then print(GREEN .. "[TCG]|r LFM: the party is already full."); return false end
+    if GetTime() - lastLFM < 30 then print(GREEN .. "[TCG]|r LFM: wait a little before sending again."); return false end
+    local names = select(4, missingRoles())
+    for i, n in ipairs(names) do names[i] = clean(n) end
+    local joined = table.concat(names, ",")
+    if send("L", ("%d,%d,%d;%s;%s"):format(tank, healer, dps, dungeon, joined)) then
+        lastLFM = GetTime()
+        announceLFM(myTag(), UnitName("player"), tank, healer, dps, dungeon, joined) -- we get no echo
+        return true
+    end
+    print(("%s[TCG]|r LFM not sent: channel=%s guildTag=%s"):format(GREEN, tostring(chanId()), tostring(myTag())))
+    return false
+end
+
+local function openLFM()
+    if not lfmDialog then
+        local d = CreateFrame("Frame", "ThreeCrownsGuildLFM", UIParent, "BasicFrameTemplateWithInset")
+        lfmDialog = d
+        d:SetSize(290, 170); d:SetPoint("CENTER", 0, 80); d:SetFrameStrata("DIALOG")
+        d:SetMovable(true); d:EnableMouse(true); d:SetClampedToScreen(true)
+        d:RegisterForDrag("LeftButton")
+        d:SetScript("OnDragStart", d.StartMoving); d:SetScript("OnDragStop", d.StopMovingOrSizing)
+        if d.TitleText then d.TitleText:SetText("Looking for more") end
+        tinsert(UISpecialFrames, "ThreeCrownsGuildLFM")
+
+        local label = d:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        label:SetPoint("TOPLEFT", 16, -34); label:SetText("Dungeon")
+        d.dungeon = CreateFrame("EditBox", nil, d, "InputBoxTemplate")
+        d.dungeon:SetPoint("TOPLEFT", 22, -50); d.dungeon:SetSize(246, 24)
+        d.dungeon:SetAutoFocus(false); d.dungeon:SetMaxBytes(60)
+        d.dungeon:SetScript("OnEscapePressed", function(e) e:ClearFocus() end)
+
+        -- click a role to cycle how many of it you still need
+        local function need(name, max, x)
+            local b = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
+            b:SetSize(82, 24); b:SetPoint("TOPLEFT", x, -86)
+            function b:Set(n) self.n = n; self:SetText(("%s: %d"):format(name, n)) end
+            b:SetScript("OnClick", function(self) self:Set((self.n + 1) % (max + 1)) end)
+            return b
+        end
+        d.tank, d.healer, d.dps = need("Tank", 1, 16), need("Healer", 1, 102), need("DPS", 3, 188)
+
+        local sendButton = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
+        sendButton:SetSize(180, 26); sendButton:SetPoint("BOTTOM", 0, 14); sendButton:SetText("Send to all guilds")
+        sendButton:SetScript("OnClick", function()
+            local ok = false
+            chatInput(function() ok = sendLFM(d.dungeon:GetText(), d.tank.n, d.healer.n, d.dps.n) end)
+            if ok then d:Hide() end
+        end)
+    end
+    local tank, healer, dps = missingRoles()
+    lfmDialog.tank:Set(tank); lfmDialog.healer:Set(healer); lfmDialog.dps:Set(dps)
+    if lfmDialog.dungeon:GetText() == "" and IsInInstance() then lfmDialog.dungeon:SetText(GetRealZoneText() or "") end
+    lfmDialog:Show()
+end
+
+local function onLFM(tag, name, body)
+    if db.lfm == false or GetTime() - (lastLFMFrom[name] or -math.huge) < 10 then return end
+    lastLFMFrom[name] = GetTime()
+    local needs, dungeon, names = strsplit(";", body or "", 3)
+    local tank, healer, dps = strsplit(",", needs or "", 3)
+    tank, healer, dps = tonumber(tank) or 0, tonumber(healer) or 0, tonumber(dps) or 0
+    tank, healer, dps = math.min(math.max(tank, 0), 1), math.min(math.max(healer, 0), 1), math.min(math.max(dps, 0), 3)
+    if tank + healer + dps == 0 then return end
+    announceLFM(clean(tag), name, tank, healer, dps, clean(dungeon), (clean(names):gsub(",", ", ")))
+end
+
 local function syncGuildChat(msg, guid)
     if not db or not db.sync or secret(msg) or secret(guid) or guid ~= UnitGUID("player") then return end
     local tag = myTag()
@@ -428,17 +569,20 @@ local function onAddonMsg(text, sender)
             if #part.msg == part.length then addChat(tag, name, part.class, part.msg, true) end
         end
         return
+    elseif kind == "L" then
+        if name ~= UnitName("player") then onLFM(tag, name, body) end
+        return
     elseif kind == "C" then
         if name == UnitName("player") then return end -- already shown locally on send
         local class, msg = strsplit(";", body or "", 2)
         local p = peers[name] or { level = 0, zone = "" }
-        p.tag, p.class, p.seen = tag, class, GetTime()
+        p.tag, p.class, p.seen, p.from = tag, class, GetTime(), sender
         peers[name] = p
         addChat(tag, name, class, msg or "")
     elseif kind == "P" or kind == "R" then
         local lvl, class, zone = strsplit(";", body or "", 3)
         local known = peers[name] ~= nil
-        peers[name] = { tag = tag, level = tonumber(lvl) or 0, class = class, zone = zone or "", seen = GetTime() }
+        peers[name] = { tag = tag, level = tonumber(lvl) or 0, class = class, zone = zone or "", seen = GetTime(), from = sender }
         if isTBC and kind == "P" and not known and name ~= UnitName("player") then replyTo(sender) end
     elseif kind == "X" then
         peers[name] = nil
@@ -497,6 +641,10 @@ local function createUI()
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     if f.TitleText then f.TitleText:SetText("ThreeCrownsGuild") end
     tinsert(UISpecialFrames, "ThreeCrownsGuildFrame")
+
+    local lfmButton = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    lfmButton:SetSize(54, 20); lfmButton:SetPoint("TOPLEFT", 8, -4); lfmButton:SetText("LFM")
+    lfmButton:SetScript("OnClick", openLFM)
 
     -- left: framed chat with a scrollbar, input below
     local cp = inset(f)
@@ -646,6 +794,21 @@ for _, ev in ipairs({ "CHAT_MSG_CHANNEL", "CHAT_MSG_CHANNEL_NOTICE", "CHAT_MSG_C
     AddMessageEventFilter(ev, hideChannel)
 end
 
+-- TBC: any key press or mouse click is player input, so an active player announces with one
+-- channel message (the transport that works for chat) instead of a whisper per channel member.
+local function onPlayerInput()
+    if InCombatLockdown() or GetTime() < joinAt or not (chanId() and myTag()) then return end
+    if GetTime() - lastAnnounce >= (warmup > 0 and 20 or HEARTBEAT) then pcall(chatInput, announce) end
+end
+
+local function setupInput()
+    local input = CreateFrame("Frame", nil, UIParent)
+    input:EnableKeyboard(true)
+    input:SetPropagateKeyboardInput(true) -- never swallow keys meant for the game
+    input:SetScript("OnKeyDown", onPlayerInput)
+    WorldFrame:HookScript("OnMouseDown", onPlayerInput)
+end
+
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_LOGOUT", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE",
     "ZONE_CHANGED_NEW_AREA", "CHAT_MSG_ADDON", "CHAT_MSG_CHANNEL", "CHAT_MSG_GUILD", "ADDON_LOADED" }) do ev:RegisterEvent(e) end
@@ -669,14 +832,12 @@ ev:SetScript("OnEvent", function(_, event, ...)
             local kind, tag = strsplit("#", text, 3)
             local configured = false
             for _, guild in ipairs(cfg.guilds) do if guild.tag == tag then configured = true; break end end
+            stats.recv = stats.recv + 1
+            if not configured then stats.noConfig = stats.noConfig + 1 end
+            -- The channel roster the client gives us is incomplete, so it is not used as a filter:
+            -- a configured guild tag and a known presence kind are enough.
             if configured and (kind == "P" or kind == "R" or kind == "Q" or kind == "X") then
-                -- the roster is only a filter when it is loaded; a new member may not be in our copy yet
-                local members = channelMembers()
-                if next(members) == nil or members[Ambiguate(sender, "none")] then
-                    onAddonMsg(text, sender)
-                else
-                    rosterAt = math.min(rosterAt, GetTime() - 50) -- look again in ~10 s
-                end
+                onAddonMsg(text, sender)
             end
         end
     elseif event == "ADDON_LOADED" then -- the guild window can load after us
@@ -689,12 +850,14 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if db.tag == nil then db.tag = true end
         if db.echo == nil then db.echo = true end
         if db.sync == nil then db.sync = true end
+        if db.lfm == nil then db.lfm = true end
         if db.surname == nil then db.surname = true end
         db.history = db.history or {}
         db.nicks = db.nicks or {}
         joinAt = GetTime() + JOIN_DELAY -- let General/Trade take their channel numbers first
         if IsInGuild() then (C_GuildInfo and C_GuildInfo.GuildRoster or GuildRoster)() end
         C_Timer.NewTicker(10, tick)
+        if isTBC then pcall(setupInput) end
         pcall(scan) -- a problem with Blizzard's guild window must never stop the rest
         if _G.FriendsFrame then pcall(FriendsFrame.HookScript, FriendsFrame, "OnShow", scan) end -- old Guild tab is built late
     elseif event == "PLAYER_LOGOUT" then
@@ -712,18 +875,31 @@ SLASH_THREECROWNSGUILD2 = "/tc"
 SlashCmdList.THREECROWNSGUILD = function(msg)
     msg = strtrim(msg)
     local key, val = msg:lower():match("^(%a+) (o[nf]+)$")
-    if (key == "tag" or key == "echo" or key == "surname" or key == "sync") and (val == "on" or val == "off") then
+    if (key == "tag" or key == "echo" or key == "surname" or key == "sync" or key == "lfm") and (val == "on" or val == "off") then
         db[key] = (val == "on")
         if key == "surname" then ThreeCrownsGuild_Refresh(); refreshChat() end
         print(GREEN .. "[TCG]|r " .. key .. " " .. val)
+    elseif msg:lower() == "lfm" then
+        openLFM()
+    elseif msg:lower():match("^lfm ") then -- /tc lfm <dungeon>: send now with the roles we detect
+        local tank, healer, dps = missingRoles()
+        chatInput(sendLFM, msg:sub(5), tank, healer, dps)
     elseif msg:lower() == "who" then
         lastQuery = 0; chatInput(requestWho)
     elseif msg:lower() == "status" then
         local n = 0
         for _ in pairs(peers) do n = n + 1 end
-        print(("%s[TCG]|r channel=%s joined=%s guildTag=%s peers=%d lastSend=%s rx P/Q/C=%d/%d/%d"):format(
+        local members = 0
+        for _ in pairs(rosterCache) do members = members + 1 end
+        print(("%s[TCG]|r channel=%s joined=%s guildTag=%s peers=%d lastSend=%s rx P/Q/C=%d/%d/%d"
+            .. " whispers out/in=%d/%d dropped(unknown guild)=%d roster=%d"):format(
             GREEN, tostring(cfg.channel), tostring(chanId()), tostring(myTag()), n, lastResult,
-            rx.P or 0, rx.Q or 0, rx.C or 0))
+            rx.P or 0, rx.Q or 0, rx.C or 0, stats.sent, stats.recv, stats.noConfig, members))
+    elseif msg:lower() == "roster" then
+        local names = {}
+        for name in pairs(rosterCache) do names[#names + 1] = name end
+        table.sort(names)
+        print(("%s[TCG]|r channel members (%d): %s"):format(GREEN, #names, table.concat(names, ", ")))
     elseif msg == "" then
         chatInput(toggle)
     else
