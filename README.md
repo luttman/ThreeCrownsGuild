@@ -1,82 +1,97 @@
 # ThreeCrownsGuild
 
-Online-lista och gemensam chatt (`/tcg`) över flera guilds på samma realm.
-Fungerar i WoW Forever (Interface `16xxx`) och TBC Anniversary (`20xxx`). Classic Era, Wrath,
-Cataclysm, MoP och Retail stöds inte. Alla deltagare behöver samma version.
+An online member list and shared chat (`/tcg`) across multiple guilds on the same realm.
+Supports WoW Forever (Interface `16xxx`) and TBC Anniversary (`20xxx`). Classic Era, Wrath,
+Cataclysm, MoP, and Retail are not supported. All participants need the same version.
 
-**TBC:** klienten tillåter inte addonmeddelanden till kanaler och bara spelarinput för
-kanalchatt, så addonet använder vanliga meddelanden med prefixet `GF1#` i den dolda
-transportkanalen (kanalen döljs; en kanalmedlem utan addonet kan se meddelandena).
-Chatt och LFM skickas när du skriver eller klickar. Närvaro skickas som ett kanalmeddelande
-vid tangenttryck eller klick (ungefär var fjärde minut) och som viskningar när du står still.
-Den som kommer online får direkta svar av de andra. Inaktuella spelare tas bort efter tio
-minuter. TBC-delen är ännu inte fullt verifierad i spelet.
+**TBC:** the client does not allow addon messages to channels, and channel chat requires
+player input. The addon therefore uses regular messages prefixed with `GF1#` in a hidden
+transport channel. The addon hides this channel; members without the addon can see its messages.
+Chat and LFM messages are sent when you type or click. Presence is sent as a channel message
+on a keypress or click (roughly every four minutes), and through addon whispers while you are idle.
+Players coming online receive direct replies from other participants. Inactive players are removed
+after ten minutes. TBC support has not yet been fully verified in the game.
 
-## Installera
-Kopiera/länka mappen till `Interface\AddOns\ThreeCrownsGuild` (mappnamnet måste matcha `.toc`).
+## Installation
 
-Vid uppgradering: stäng WoW och byt ut den gamla addon-mappen. För att behålla historik, smeknamn och inställningar, kopiera `WTF\Account\<konto>\SavedVariables\GuildFriends.lua` till `ThreeCrownsGuild.lua` i samma SavedVariables-mapp innan du startar WoW. Variabelnamnet `GuildFriendsDB` behålls för att kunna läsa den sparade datan.
+Copy or link the folder to `Interface\AddOns\ThreeCrownsGuild`. The folder name must match the `.toc` file.
 
-## Setup (officerare, samma text i ALLA guilds → Guild Info, tangent `J`)
+When upgrading, close WoW and replace the old addon folder. To keep your history, nicknames, and settings
+when migrating from GuildFriends, copy `WTF\Account\<account>\SavedVariables\GuildFriends.lua` to
+`ThreeCrownsGuild.lua` in the same SavedVariables folder before starting WoW. The saved variable name
+`GuildFriendsDB` is retained so the addon can read your existing data.
+
+## Setup
+
+An officer must add the same configuration to **Guild Info** in every participating guild
+(open the guild window with `J`):
+
+```text
+TCGc:channelname:password
+TCGp:Guild One:G1
+TCGp:Guild Two:G2
 ```
-TCGc:kanalnamn:lösenord
-TCGp:Guild Ett:G1
-TCGp:Guild Två:G2
-```
-`TCGp` = exakt guild-namn + tagg, en rad per guild (inkl. din egen). Prefixet är `TCG`, så det krockar inte med GreenWall. Äldre `GFc:`/`GFp:` och `MGc:`/`MGp:` fungerar också.
 
-## Användning
+Each `TCGp` line contains an exact guild name and its tag. Include one line per guild, including your own.
+The `TCG` prefix avoids conflicts with GreenWall. Older `GFc:`/`GFp:` and `MGc:`/`MGp:` prefixes also work.
 
-Skriv som vanligt i guildchatten (`/g`). Addonet delar dina egna meddelanden med
-de anslutna guildarnas addon-användare. Synkningen är på som standard. Stäng av
-med `/tc sync off` och slå på igen med `/tc sync on`; valet sparas för kontot.
-Avstängningen stoppar automatisk vidarebefordran av dina egna guildmeddelanden.
-Du kan fortfarande läsa delade meddelanden och skriva manuellt med `/tc text`.
-Officerchatt, viskningar och meddelanden från spelare utan addonet skickas inte vidare.
-Alla deltagare behöver version 0.2.0 eller senare för guildsynkningen.
+## Usage
 
-`/tc` och `/tcg` fungerar likadant. Den vanliga guildchatten visar meddelanden
-från din egen guild; andra guildars meddelanden visas med guildtagg och spelarnamn i chattfönstret
-och i addonets fönster. De skickas inte vidare till serverns guildchatt.
+Write in guild chat (`/g`) as usual. The addon shares your own messages with addon users in the
+connected guilds. Synchronization is enabled by default. Disable it with `/tc sync off` and enable
+it again with `/tc sync on`; the setting is saved for your account.
+Disabling synchronization stops automatic forwarding of your own guild messages. You can still
+read shared messages and send messages manually with `/tc text`.
+Officer chat, regular whispers, and messages from players without the addon are not forwarded.
+All participants need version 0.2.0 or later for guild chat synchronization.
 
-| | |
+`/tc` and `/tcg` work the same way. Regular guild chat shows messages from your own guild.
+Messages from other guilds appear with a guild tag and player name in the chat window and the
+addon window. They are not forwarded into the server's guild chat.
+
+| Command | Action |
 |---|---|
-| `/tc sync on\|off` | slå på/stäng av automatisk synkning av egna guildmeddelanden |
-| `/tcg` | öppna/stäng fönstret |
-| `/tcg text` | skriv till alla guilds (visas som `[TAG] Namn: text`) |
-| `/tcg tag on\|off` | visa guild-tagg i chatten |
-| `/tcg echo on\|off` | visa `/tcg` även i vanliga chattfönstret |
-| `/tcg surname on\|off` | visa/dölj efternamn (visas som standard) |
-| `/tcg lfm` | öppna LFM-dialogen (samma som knappen **LFM** i fönstret) |
-| `/tcg lfm Dungeon` | skicka direkt med automatiskt upptäckta roller |
-| `/tcg lfm on\|off` | visa/dölj LFM-notiser från andra guilds |
-| `/tcg who` | uppdatera online-listan |
-| `/tcg status` | felsökning |
+| `/tc sync on\|off` | Enable or disable automatic forwarding of your own guild messages |
+| `/tcg` | Open or close the addon window |
+| `/tcg text` | Send a message to all connected guilds (displayed as `[TAG] Name: text`) |
+| `/tcg tag on\|off` | Show or hide guild tags in chat |
+| `/tcg echo on\|off` | Show or hide shared chat in the regular chat window |
+| `/tcg surname on\|off` | Show or hide surnames (shown by default) |
+| `/tcg lfm` | Open the LFM dialog, also available through the **LFM** button |
+| `/tcg lfm Dungeon` | Send an LFM notification directly using automatically detected roles |
+| `/tcg lfm on\|off` | Show or hide LFM notifications from other guilds |
+| `/tcg who` | Refresh the online member list |
+| `/tcg status` | Show diagnostic information |
 
-Fönstret: egen guild visar hela guild-rostern (online), övriga guilds visar de som kör addonet. Klicka på ett namn för att viskning, klicka på en guild-rad för att fälla ihop den. Historik (200 rader) sparas.
+The addon window shows all online members of your own guild. For other guilds, it shows players
+running the addon. Click a player name to whisper, or click a guild row to collapse it.
+Chat history is saved, up to 200 messages.
 
-Högerklicka på en spelare och välj **Set nickname** för ett lokalt smeknamn. Det visas som `Förnamn(nick):` i chatten och `Förnamn(nick)` i listan, även när efternamn är på. Töm smeknamnet för att ta bort det. `/tcg surname off` visar bara förnamn utan smeknamn. Inställningen sparas för kontot och gäller bara addonet.
+Right-click a player and select **Set nickname** to assign a local nickname. It appears as
+`FirstName(nickname):` in chat and `FirstName(nickname)` in the member list, even when surnames
+are enabled. Clear the nickname to remove it. With `/tcg surname off`, players without a nickname
+are shown by first name only. These settings are saved for your account and apply only to the addon.
 
-## Publicera på GitHub och CurseForge
+## Publishing to GitHub and CurseForge
 
-GitHub Actions kontrollerar Lua-koden vid push och pull requests. En versionstagg
-som `v0.1.0` bygger en ZIP med mappen `ThreeCrownsGuild`, sätter addonets version
-från taggen och publicerar en GitHub Release. Testfiler och workflow följer inte
-med i ZIP-filen. Paketeringen använder [BigWigs packager](https://github.com/BigWigsMods/packager).
+GitHub Actions checks the Lua code on pushes and pull requests. A version tag such as `v0.1.0`
+builds a ZIP containing the `ThreeCrownsGuild` folder, sets the addon version from the tag,
+and publishes a GitHub Release. Test files and workflows are excluded from the ZIP.
+Packaging uses the [BigWigs packager](https://github.com/BigWigsMods/packager).
 
-För att även uppdatera CurseForge, gör detta en gång:
+To enable CurseForge uploads, complete this setup once:
 
-1. Skapa ett World of Warcraft-projekt i [CurseForge Authors](https://authors.curseforge.com/).
-2. Öppna GitHub-repots **Settings → Secrets and variables → Actions**.
-3. Lägg projektets numeriska ID i repository-variabeln `CF_PROJECT_ID`.
-4. Skapa en [CurseForge upload API-token](https://www.curseforge.com/account/api-tokens)
-   och spara den som repository-hemligheten `CF_API_KEY`. Lägg aldrig token i koden.
+1. Create a World of Warcraft project in [CurseForge Authors](https://authors.curseforge.com/).
+2. Open the GitHub repository's **Settings → Secrets and variables → Actions**.
+3. Set the repository variable `CF_PROJECT_ID` to your project's numeric ID.
+4. Create a [CurseForge upload API token](https://www.curseforge.com/account/api-tokens)
+   and save it as the repository secret `CF_API_KEY`. Never put the token in the source code.
 
-Utan `CF_PROJECT_ID` publiceras endast GitHub-versionen och workflow visar en
-varning. Om projekt-ID anges krävs också en API-token. CurseForge kan behöva
-godkänna projektet och uppladdade filer innan de blir tillgängliga.
+Without `CF_PROJECT_ID`, only the GitHub release is published, and the workflow reports a warning.
+If a project ID is configured, an API token is also required. CurseForge may need to approve
+both the project and uploaded files before they become available.
 
-Publicera en ny version från projektmappen (byt versionsnummer varje gång):
+To publish a new version from the project folder, use a new version number each time:
 
 ```sh
 git add .
@@ -86,15 +101,19 @@ git tag -a v0.1.1 -m "Release v0.1.1"
 git push origin v0.1.1
 ```
 
-En vanlig push uppdaterar koden på GitHub. Versionstaggen startar publiceringen
-till CurseForge automatiskt när inställningarna ovan finns.
+A regular push updates the code on GitHub. Pushing a version tag starts automatic publishing
+to CurseForge when the settings above are configured.
 
-## LFM (letar fler till gruppen)
+## LFM (looking for more)
 
-Tryck på **LFM** i fönstret (eller `/tcg lfm`). Dialogen fylls i med vilka roller gruppen saknar
-(en 5-mannagrupp: 1 tank, 1 healer, 3 DPS) och kan ändras genom att klicka på rollknapparna.
-Ange dungeon och skicka: alla guilds får en notis mitt på skärmen, `Namn1, Namn2 are looking for
-Healer + 2 DPS` med dungeon och guild-tagg. Notisen visas även i chatten med klickbart namn.
-Roller tas från gruppens tilldelade roller om klienten har dem, annars gissas de (Priest = healer,
-övriga DPS), så kontrollera dialogen. Högst ett utskick per 30 sekunder.
+Click **LFM** in the addon window or use `/tcg lfm`. The dialog fills in the roles your group
+is missing, based on a five-player party: one tank, one healer, and three DPS. Click the role
+buttons to adjust the selection.
 
+Enter a dungeon and send the notification. All connected guilds receive a notification in the
+middle of the screen, such as `Name1, Name2 are looking for Healer + 2 DPS`, with the dungeon
+and guild tag. The notification also appears in chat with a clickable player name.
+
+Roles come from assigned group roles when the client provides them. Otherwise, the addon
+estimates them (Priest = healer, other classes = DPS), so check the dialog before sending.
+You can send at most one notification every 30 seconds.
