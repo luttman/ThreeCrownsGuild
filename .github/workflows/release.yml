@@ -16,12 +16,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Lua
         run: sudo apt-get update && sudo apt-get install -y lua5.1
-      - name: Check Lua syntax and name display
+      - name: Check Lua syntax and run tests
         run: |
-          luac5.1 -p ThreeCrownsGuild.lua
+          luac5.1 -p ThreeCrownsGuild.lua GuildMap.lua GuildStats.lua
           lua5.1 tests/name_display.lua
           lua5.1 tests/forever_only.lua
           lua5.1 tests/guild_sync.lua
+          lua5.1 tests/guild_tools.lua
+          lua5.1 tests/startup.lua
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

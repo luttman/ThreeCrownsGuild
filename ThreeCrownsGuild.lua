@@ -3,6 +3,7 @@ local interfaceVersion = select(4, GetBuildInfo())
 local isForever = interfaceVersion >= 16000 and interfaceVersion < 17000
 local isTBC = interfaceVersion >= 20000 and interfaceVersion < 21000
 if not (isForever or isTBC) then return end
+local _, addon = ...
 
 -- ThreeCrownsGuild: online roster + shared chat (/tcg) across several guilds on one realm.
 -- Config is read from Guild Info (like GreenWall), identical in every guild:
@@ -23,7 +24,7 @@ local SendChannelChat = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatM
 local RegisterPrefix = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or RegisterAddonMessagePrefix
 local joinAt, lastAnnounce, lastQuery, replyPending = 0, 0, 0, false
 local warmup, lastResult, rx = 3, "-", {} -- warmup: a few quick announces after joining (first ones can be dropped)
-local stats = { sent = 0, recv = 0, noConfig = 0 } -- TBC whisper transport, shown by /tcg status
+local stats = { sent = 0, recv = 0, noConfig = 0 } -- TBC whisper transport, shown by /tc status
 local f, chat, pool, content -- UI, created on first open
 
 local function parseConfig(text)
@@ -861,7 +862,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
         pcall(scan) -- a problem with Blizzard's guild window must never stop the rest
         if _G.FriendsFrame then pcall(FriendsFrame.HookScript, FriendsFrame, "OnShow", scan) end -- old Guild tab is built late
         local syncStatus = db.sync and (GREEN .. "on") or "|cffff6060off"
-        print(GREEN .. "[TCG]|r Sync " .. syncStatus .. "|r. Type /tcg help for commands.")
+        print(GREEN .. "[TCG]|r Sync " .. syncStatus .. "|r. /tcg help for chat. /tc help for guild tools.")
     elseif event == "PLAYER_LOGOUT" then
         send("X")
     elseif event == "ZONE_CHANGED_NEW_AREA" then
@@ -873,29 +874,44 @@ ev:SetScript("OnEvent", function(_, event, ...)
 end)
 
 SLASH_THREECROWNSGUILD1 = "/tcg"
-SLASH_THREECROWNSGUILD2 = "/tc"
 SlashCmdList.THREECROWNSGUILD = function(msg)
     msg = strtrim(msg)
-    local key, val = msg:lower():match("^(%a+) (o[nf]+)$")
-    if (key == "tag" or key == "echo" or key == "surname" or key == "sync" or key == "lfm") and (val == "on" or val == "off") then
+    local command = msg:lower()
+    local key, val = command:match("^(%a+)%s+(%a+)$")
+    if (key == "tag" or key == "echo" or key == "surname" or key == "sync") and (val == "on" or val == "off") then
         db[key] = (val == "on")
         if key == "surname" then ThreeCrownsGuild_Refresh(); refreshChat() end
         print(GREEN .. "[TCG]|r " .. key .. " " .. val)
-    elseif msg:lower() == "help" then
-        print(GREEN .. "[TCG]|r /tcg and /tc work the same way.")
-        print("/tcg opens or closes the addon window. /tcg <message> sends shared chat.")
+    elseif command == "help" then
+        print(GREEN .. "[TCG]|r /tcg opens or closes shared chat. /tcg <message> sends a message.")
         print("/tcg sync on enables guild chat forwarding. /tcg sync off disables it.")
-        print("Use /tcg tag, echo, surname, or lfm with on or off to change those settings.")
-        print("/tcg lfm opens the LFM dialog. /tcg lfm <dungeon> sends a request.")
-        print("/tcg who refreshes the member list. /tcg status and /tcg roster show diagnostics.")
-    elseif msg:lower() == "lfm" then
+        print("Use /tcg tag, echo, or surname with on or off to change chat display settings.")
+    elseif command == "who" or command == "status" or command == "roster" or command == "lfm"
+        or command:match("^lfm%s") then
+        print(GREEN .. "[TCG]|r Use /tc " .. msg .. ".")
+    elseif msg == "" then
+        chatInput(toggle)
+    else
+        chatInput(sendChat, msg)
+    end
+end
+
+SLASH_THREECROWNSGUILDTOOLS1 = "/tc"
+SlashCmdList.THREECROWNSGUILDTOOLS = function(msg)
+    msg = strtrim(msg)
+    local command = msg:lower()
+    local key, val = command:match("^(%a+)%s+(%a+)$")
+    if key == "lfm" and (val == "on" or val == "off") then
+        db.lfm = val == "on"
+        print(GREEN .. "[TCG]|r lfm " .. val)
+    elseif command == "lfm" then
         openLFM()
-    elseif msg:lower():match("^lfm ") then -- /tc lfm <dungeon>: send now with the roles we detect
+    elseif command:match("^lfm ") then
         local tank, healer, dps = missingRoles()
         chatInput(sendLFM, msg:sub(5), tank, healer, dps)
-    elseif msg:lower() == "who" then
+    elseif command == "who" then
         lastQuery = 0; chatInput(requestWho)
-    elseif msg:lower() == "status" then
+    elseif command == "status" then
         local n = 0
         for _ in pairs(peers) do n = n + 1 end
         local members = 0
@@ -904,14 +920,22 @@ SlashCmdList.THREECROWNSGUILD = function(msg)
             .. " whispers out/in=%d/%d dropped(unknown guild)=%d roster=%d"):format(
             GREEN, tostring(cfg.channel), tostring(chanId()), tostring(myTag()), n, lastResult,
             rx.P or 0, rx.Q or 0, rx.C or 0, stats.sent, stats.recv, stats.noConfig, members))
-    elseif msg:lower() == "roster" then
+    elseif command == "roster" then
         local names = {}
         for name in pairs(rosterCache) do names[#names + 1] = name end
         table.sort(names)
         print(("%s[TCG]|r channel members (%d): %s"):format(GREEN, #names, table.concat(names, ", ")))
-    elseif msg == "" then
-        chatInput(toggle)
+    elseif command == "help" then
+        print(GREEN .. "[TCG]|r /tc stats opens guild stats. Use /tc deaths or /tc race to switch views.")
+        print("/tc show shares your position. /tc hide stops sharing it. /tc pins on or off controls map dots.")
+        print("/tc share on or off controls stat sharing. /tc who refreshes the roster.")
+        print("/tc lfm opens group finder. Use /tc lfm <dungeon> to send a request or /tc lfm on or off for notices.")
+        print("/tc status and /tc roster show diagnostics. Use /tcg help for chat commands.")
+    elseif addon and addon.GuildCommand and addon.GuildCommand(command) then
+        return
+    elseif key == "sync" or key == "tag" or key == "echo" or key == "surname" then
+        print(GREEN .. "[TCG]|r Use /tcg " .. msg .. ".")
     else
-        chatInput(sendChat, msg)
+        print(GREEN .. "[TCG]|r See /tc help for guild tools or /tcg help for chat.")
     end
 end

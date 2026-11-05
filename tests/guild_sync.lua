@@ -76,7 +76,7 @@ assert(#echoes == 1 and GuildFriendsDB.history[3].name == "Carl")
 assert(#packets == 1, "Received message was forwarded again")
 
 SlashCmdList.THREECROWNSGUILD("sync off")
-assert(GuildFriendsDB.sync == false and SLASH_THREECROWNSGUILD2 == "/tc")
+assert(GuildFriendsDB.sync == false and SLASH_THREECROWNSGUILDTOOLS1 == "/tc")
 guildEvent("Privat", "own-guid")
 assert(#packets == 1)
 frame.handler(nil, "PLAYER_LOGIN")

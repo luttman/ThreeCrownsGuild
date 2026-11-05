@@ -1,6 +1,7 @@
 # ThreeCrownsGuild
 
 An online member list and shared chat (`/tcg`) across multiple guilds on the same realm.
+Compare stats and see players from your own guild on the map with `/tc` guild tools.
 Supports WoW Forever (Interface `16xxx`) and TBC Anniversary (`20xxx`). Classic Era, Wrath,
 Cataclysm, MoP, and Retail are not supported. All participants need the same version.
 
@@ -35,34 +36,29 @@ TCGp:Guild Two:G2
 Each `TCGp` line contains an exact guild name and its tag. Include one line per guild, including your own.
 The `TCG` prefix avoids conflicts with GreenWall. Older `GFc:`/`GFp:` and `MGc:`/`MGp:` prefixes also work.
 
-## Usage
+## Shared chat
 
 Write in guild chat (`/g`) as usual. The addon shares your own messages with addon users in the
-connected guilds. Synchronization is enabled by default. Disable it with `/tc sync off` and enable
-it again with `/tc sync on`; the setting is saved for your account.
+connected guilds. Synchronization is enabled by default. Disable it with `/tcg sync off` and enable
+it again with `/tcg sync on`. The addon saves this setting for your account.
 Disabling synchronization stops automatic forwarding of your own guild messages. You can still
-read shared messages and send messages manually with `/tc text`.
+read shared messages and send messages manually with `/tcg text`.
 Officer chat, regular whispers, and messages from players without the addon are not forwarded.
 All participants need version 0.2.0 or later for guild chat synchronization.
 
-`/tc` and `/tcg` work the same way. Regular guild chat shows messages from your own guild.
+Regular guild chat shows messages from your own guild.
 Messages from other guilds appear with a guild tag and player name in the chat window and the
 addon window. They are not forwarded into the server's guild chat.
 
 | Command | Action |
 |---|---|
-| `/tcg help` | Show the command list in chat |
-| `/tc sync on\|off` | Enable or disable automatic forwarding of your own guild messages |
+| `/tcg help` | Show chat commands |
+| `/tcg sync on\|off` | Enable or disable automatic forwarding of your own guild messages |
 | `/tcg` | Open or close the addon window |
 | `/tcg text` | Send a message to all connected guilds (displayed as `[TAG] Name: text`) |
 | `/tcg tag on\|off` | Show or hide guild tags in chat |
 | `/tcg echo on\|off` | Show or hide shared chat in the regular chat window |
 | `/tcg surname on\|off` | Show or hide surnames (shown by default) |
-| `/tcg lfm` | Open the LFM dialog, also available through the **LFM** button |
-| `/tcg lfm Dungeon` | Send an LFM notification directly using automatically detected roles |
-| `/tcg lfm on\|off` | Show or hide LFM notifications from other guilds |
-| `/tcg who` | Refresh the online member list |
-| `/tcg status` | Show diagnostic information |
 
 The addon window shows all online members of your own guild. For other guilds, it shows players
 running the addon. Click a player name to whisper, or click a guild row to collapse it.
@@ -72,6 +68,37 @@ Right-click a player and select **Set nickname** to assign a local nickname. It 
 `FirstName(nickname):` in chat and `FirstName(nickname)` in the member list, even when surnames
 are enabled. Clear the nickname to remove it. With `/tcg surname off`, players without a nickname
 are shown by first name only. These settings are saved for your account and apply only to the addon.
+
+## Guild tools
+
+| Command | Action |
+|---|---|
+| `/tc help` | Show guild tool commands |
+| `/tc` or `/tc stats` | Open the guild leaderboard. Click a column heading to sort. |
+| `/tc deaths` | Show the death breakdown by location and cause |
+| `/tc race` | Compare when players reached levels 10, 20, 30, 40, 50, and 60 and how much play time it took |
+| `/tc share on\|off` | Start or stop sharing your character's stats with your guild |
+| `/tc show` or `/tc hide` | Start or stop sharing your outdoor position with your guild |
+| `/tc pins on\|off` | Show or hide class-colored guild dots on your world map and minimap |
+| `/tc lfm` | Open the LFM dialog, also available through the **LFM** button |
+| `/tc lfm Dungeon` | Send an LFM notification using automatically detected roles |
+| `/tc lfm on\|off` | Show or hide LFM notifications from other guilds |
+| `/tc who` | Refresh the online member list |
+| `/tc status` or `/tc roster` | Show diagnostic information |
+
+The leaderboard reads the game's character statistics for quests completed, creatures killed,
+dungeons and raids entered, auctions posted and purchased, and deaths. It also shows the most gold
+your character has ever owned and the last total WoW reports through `/played`. A dash marks values
+the client doesn't provide.
+
+The level race records milestones as you reach them with the addon enabled. Each column sorts by
+the play time it took to reach that level. Race results use the same sharing setting as guild stats.
+
+Stat sharing is on by default, and position sharing is off by default. Each character can change
+both settings separately. Guildmates need the addon to see your position or stats. The addon keeps
+the latest shared stats for offline guildmates.
+When you turn stat sharing off, guildmates remove your entry when they receive the update. Map dots
+expire after 30 seconds without an update. The minimap shows only dots within its current view radius.
 
 ## Publishing to GitHub and CurseForge
 
@@ -107,7 +134,7 @@ to CurseForge when the settings above are configured.
 
 ## LFM (looking for more)
 
-Click **LFM** in the addon window or use `/tcg lfm`. The dialog fills in the roles your group
+Click **LFM** in the addon window or use `/tc lfm`. The dialog fills in the roles your group
 is missing, based on a five-player party: one tank, one healer, and three DPS. Click the role
 buttons to adjust the selection.
 

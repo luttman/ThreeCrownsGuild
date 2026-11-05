@@ -113,7 +113,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     local chunk = assert(compile(source))
     setfenv(chunk, env)
     chunk()
-    assert(env.SLASH_THREECROWNSGUILD1 == "/tcg" and env.SLASH_THREECROWNSGUILD2 == "/tc", client)
+    assert(env.SLASH_THREECROWNSGUILD1 == "/tcg" and env.SLASH_THREECROWNSGUILDTOOLS1 == "/tc", client)
     assert(type(env.SlashCmdList.THREECROWNSGUILD) == "function", client)
     assert(filters.CHAT_MSG_CHANNEL and filters.CHAT_MSG_CHANNEL_NOTICE, client)
     local frame = frames[#frames]
@@ -125,7 +125,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     assert(env.GuildFriendsDB.sync == false, client)
     env.SlashCmdList.THREECROWNSGUILD("sync on")
     assert(env.GuildFriendsDB.sync == true, client)
-    env.SlashCmdList.THREECROWNSGUILD("status")
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("status")
     assert(#output == 4 and output[4]:find("guildTag="), client)
     frame.handler(frame, "GUILD_ROSTER_UPDATE")
     time = 20
@@ -133,11 +133,15 @@ for _, client in ipairs({ "forever", "tbc" }) do
     assert(removedChannel == "TestChannel", client)
     channelID = 5
     hardwareInput = true
-    local beforeHelp = #sent
+    local beforeHelp, firstHelpLine = #sent, #output + 1
     env.SlashCmdList.THREECROWNSGUILD("help")
-    local help = table.concat(output, "\n", 5)
+    local help = table.concat(output, "\n", firstHelpLine)
     assert(help:find("/tcg sync on", 1, true) and help:find("/tcg sync off", 1, true), client .. ": missing sync help")
     assert(#sent == beforeHelp and #env.GuildFriendsDB.history == 0, client .. ": help was sent as shared chat")
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("Hello")
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("sync off")
+    env.SlashCmdList.THREECROWNSGUILD("who")
+    assert(#sent == beforeHelp and env.GuildFriendsDB.sync, client .. ": command prefixes still act as aliases")
     env.SlashCmdList.THREECROWNSGUILD("Hello")
     hardwareInput = false
     local initialSent = #sent
@@ -280,19 +284,19 @@ for _, client in ipairs({ "forever", "tbc" }) do
     lfmIn("0,1,0;|cffff0000Evil|r;|HBob")
     assert(#texts == count + 1 and not texts[#texts]:find("|cffff0000", 1, true), client .. ": LFM text not sanitized")
     time = time + 11
-    env.SlashCmdList.THREECROWNSGUILD("lfm off")
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm off")
     lfmIn("1,0,0;Hidden;Bob")
     assert(#texts == count + 1, client .. ": LFM shown while muted")
-    env.SlashCmdList.THREECROWNSGUILD("lfm on")
-    env.SlashCmdList.THREECROWNSGUILD("lfm") -- dialog opens without errors
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm on")
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm") -- dialog opens without errors
     local before = #sent
     hardwareInput = true
-    env.SlashCmdList.THREECROWNSGUILD("lfm Karazhan")
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm Karazhan")
     hardwareInput = false
     assert(#sent == before + 1 and sent[#sent]:find("L#G1#1,1,2;Karazhan;Anna", 1, true), client .. ": LFM not sent with detected roles")
     assert(texts[#texts]:find("Karazhan", 1, true), client .. ": sender got no confirmation notice")
     hardwareInput = true
-    env.SlashCmdList.THREECROWNSGUILD("lfm Again")
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm Again")
     hardwareInput = false
     assert(#sent == before + 1, client .. ": LFM sent twice within 30 seconds")
 end
