@@ -860,6 +860,8 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if isTBC then pcall(setupInput) end
         pcall(scan) -- a problem with Blizzard's guild window must never stop the rest
         if _G.FriendsFrame then pcall(FriendsFrame.HookScript, FriendsFrame, "OnShow", scan) end -- old Guild tab is built late
+        local syncStatus = db.sync and (GREEN .. "on") or "|cffff6060off"
+        print(GREEN .. "[TCG]|r Sync " .. syncStatus .. "|r. Type /tcg help for commands.")
     elseif event == "PLAYER_LOGOUT" then
         send("X")
     elseif event == "ZONE_CHANGED_NEW_AREA" then
@@ -879,6 +881,13 @@ SlashCmdList.THREECROWNSGUILD = function(msg)
         db[key] = (val == "on")
         if key == "surname" then ThreeCrownsGuild_Refresh(); refreshChat() end
         print(GREEN .. "[TCG]|r " .. key .. " " .. val)
+    elseif msg:lower() == "help" then
+        print(GREEN .. "[TCG]|r /tcg and /tc work the same way.")
+        print("/tcg opens or closes the addon window. /tcg <message> sends shared chat.")
+        print("/tcg sync on enables guild chat forwarding. /tcg sync off disables it.")
+        print("Use /tcg tag, echo, surname, or lfm with on or off to change those settings.")
+        print("/tcg lfm opens the LFM dialog. /tcg lfm <dungeon> sends a request.")
+        print("/tcg who refreshes the member list. /tcg status and /tcg roster show diagnostics.")
     elseif msg:lower() == "lfm" then
         openLFM()
     elseif msg:lower():match("^lfm ") then -- /tc lfm <dungeon>: send now with the roles we detect

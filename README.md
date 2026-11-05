@@ -51,6 +51,7 @@ addon window. They are not forwarded into the server's guild chat.
 
 | Command | Action |
 |---|---|
+| `/tcg help` | Show the command list in chat |
 | `/tc sync on\|off` | Enable or disable automatic forwarding of your own guild messages |
 | `/tcg` | Open or close the addon window |
 | `/tcg text` | Send a message to all connected guilds (displayed as `[TAG] Name: text`) |

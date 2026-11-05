@@ -81,6 +81,7 @@ guildEvent("Privat", "own-guid")
 assert(#packets == 1)
 frame.handler(nil, "PLAYER_LOGIN")
 assert(GuildFriendsDB.sync == false, "Login reset the saved opt-out")
+assert(warnings[#warnings]:find("Sync |cffff6060off|r", 1, true), "Login did not show sync off in red")
 SlashCmdList.THREECROWNSGUILD("sync on")
 local long = string.rep("Å", 120) .. " |Hitem:123|h[Link]|h #;"
 guildEvent(long, "own-guid")

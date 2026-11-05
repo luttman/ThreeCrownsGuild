@@ -119,18 +119,25 @@ for _, client in ipairs({ "forever", "tbc" }) do
     local frame = frames[#frames]
     assert(frame.events.PLAYER_LOGIN and frame.events.CHAT_MSG_GUILD, client)
     frame.handler(frame, "PLAYER_LOGIN")
+    assert(#output == 1 and output[1]:find("/tcg help", 1, true), client .. ": missing login hint")
+    assert(output[1]:find("Sync |cff40ff40on|r", 1, true), client .. ": missing green sync status")
     env.SlashCmdList.THREECROWNSGUILD("sync off")
     assert(env.GuildFriendsDB.sync == false, client)
     env.SlashCmdList.THREECROWNSGUILD("sync on")
     assert(env.GuildFriendsDB.sync == true, client)
     env.SlashCmdList.THREECROWNSGUILD("status")
-    assert(#output == 3 and output[3]:find("guildTag="), client)
+    assert(#output == 4 and output[4]:find("guildTag="), client)
     frame.handler(frame, "GUILD_ROSTER_UPDATE")
     time = 20
     ticker()
     assert(removedChannel == "TestChannel", client)
     channelID = 5
     hardwareInput = true
+    local beforeHelp = #sent
+    env.SlashCmdList.THREECROWNSGUILD("help")
+    local help = table.concat(output, "\n", 5)
+    assert(help:find("/tcg sync on", 1, true) and help:find("/tcg sync off", 1, true), client .. ": missing sync help")
+    assert(#sent == beforeHelp and #env.GuildFriendsDB.history == 0, client .. ": help was sent as shared chat")
     env.SlashCmdList.THREECROWNSGUILD("Hello")
     hardwareInput = false
     local initialSent = #sent
