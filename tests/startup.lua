@@ -11,6 +11,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     local ticker, removedChannel
     local hardwareInput, blockedCalls = false, 0
     local time, channelID = 0, 0
+    local inCombat, chatLocked, guildInfoReads = false, false, 0
     local env = setmetatable({}, { __index = _G })
     env._G = env
     env.GetBuildInfo = function() return "", "", "", client == "forever" and 16001 or 20506 end
@@ -21,7 +22,17 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.GetTime = function() return time end
     env.IsInGuild = function() return false end
     env.GetGuildInfo = function() return "Test Guild" end
-    env.GetGuildInfoText = function() return "TCGc:TestChannel:pw\nTCGp:Test Guild:G1" end
+    local function getInfoText()
+        assert(not inCombat and not chatLocked, "Read protected Guild Info during lockdown")
+        guildInfoReads = guildInfoReads + 1
+        return "TCGc:TestChannel:pw\nTCGp:Test Guild:G1"
+    end
+    if client == "forever" then
+        env.C_GuildInfo = { GetInfoText = getInfoText }
+        env.GetGuildInfoText = function() error("Called deprecated Guild Info API on Forever") end
+    else
+        env.GetGuildInfoText = getInfoText
+    end
     env.GetChannelName = function() return channelID end
     env.GetNumDisplayChannels = function() return 3 end
     env.GetChannelDisplayInfo = function(index)
@@ -49,7 +60,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
         return unpack(parts)
     end
     env.JoinChannelByName = function() end
-    env.UIParent, env.InCombatLockdown = {}, function() return false end
+    env.UIParent, env.InCombatLockdown = {}, function() return inCombat end
     local worldClick
     env.WorldFrame = { HookScript = function(_, name, handler) if name == "OnMouseDown" then worldClick = handler end end }
     env.tinsert, env.tremove = table.insert, table.remove
@@ -59,6 +70,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.ChatFrame1 = {}
     env.C_ChatInfo = {
         RegisterAddonMessagePrefix = function() end,
+        InChatMessagingLockdown = function() return chatLocked end,
         GetChannelRosterInfo = function(index, member)
             assert(index == 3, "Roster uses display index, not chat channel number")
             return roster[member]
@@ -128,9 +140,19 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.SlashCmdList.THREECROWNSGUILDTOOLS("status")
     assert(#output == 4 and output[4]:find("guildTag="), client)
     frame.handler(frame, "GUILD_ROSTER_UPDATE")
+    assert(guildInfoReads == 1, client)
+    inCombat = true
+    frame.handler(frame, "GUILD_ROSTER_UPDATE")
+    ticker()
+    inCombat, chatLocked = false, true
+    frame.handler(frame, "PLAYER_GUILD_UPDATE")
+    ticker()
+    assert(guildInfoReads == 1 and filters.CHAT_MSG_CHANNEL(nil, nil,
+        nil, nil, nil, nil, nil, nil, nil, nil, "TestChannel"), client .. ": lockdown lost the last config")
+    chatLocked = false
     time = 20
     ticker()
-    assert(removedChannel == "TestChannel", client)
+    assert(guildInfoReads == 2 and removedChannel == "TestChannel", client .. ": deferred config was not applied")
     channelID = 5
     hardwareInput = true
     local beforeHelp, firstHelpLine = #sent, #output + 1

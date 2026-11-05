@@ -753,14 +753,25 @@ end
 
 -- ---------------------------------------------------------------- lifecycle
 
+local GetInfoText = (C_GuildInfo and C_GuildInfo.GetInfoText) or GetGuildInfoText
+local configReloadPending = false
 local function reloadConfig()
-    local c = parseConfig(GetGuildInfoText())
+    if not GetInfoText then return end
+    if InCombatLockdown() or (C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown()) then
+        configReloadPending = true
+        return
+    end
+    local info = GetInfoText()
+    configReloadPending = secret(info)
+    if configReloadPending then return end
+    local c = parseConfig(info)
     if cfg.channel and (c.channel ~= cfg.channel) and chanId() then LeaveChannelByName(cfg.channel) end
     if c.channel ~= cfg.channel then rosterCache, rosterAt = {}, -math.huge end
     cfg = c
 end
 
 local function tick()
+    if configReloadPending then reloadConfig() end
     for sender, part in pairs(guildParts) do
         if GetTime() - part.time > 10 then guildParts[sender] = nil end
     end
