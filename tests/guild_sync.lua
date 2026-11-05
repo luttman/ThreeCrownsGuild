@@ -37,6 +37,7 @@ RegisterPrefix = function() end
 IsInGuild = function() return false end
 C_Timer = { NewTicker = function() end, After = function() end }
 SlashCmdList = {}
+hooksecurefunc = function() end
 GuildFriendsDB = { history = {}, nicks = {} }
 local send = function(kind, body)
     if failSend then return false end
@@ -53,14 +54,14 @@ local GREEN, HISTORY_MAX, JOIN_DELAY, PFX = "", 200, 15, "GF1"
 local function myTag() return "G1" end
 local function render(rec) return rec.msg end
 local function secret(value) return value == secretValue end
+local function chatName(sender) return Ambiguate(sender, "none") end
+local function ownChatName() return UnitName("player") end
 ]]
-local onAddonMsg = assert(compile(init .. chatCode .. events .. commands .. "\nreturn onAddonMsg"))(send, secretValue)
-assert(frame.registered.CHAT_MSG_GUILD)
+local onAddonMsg, syncGuildChat = assert(compile(init .. chatCode .. events .. commands
+    .. "\nreturn onAddonMsg, syncGuildChat"))(send, secretValue)
 frame.handler(nil, "PLAYER_LOGIN")
 assert(GuildFriendsDB.sync == true)
-local function guildEvent(msg, guid)
-    frame.handler(nil, "CHAT_MSG_GUILD", msg, "Anna", nil, nil, nil, nil, nil, nil, nil, nil, 1, guid)
-end
+local guildEvent = syncGuildChat
 guildEvent("Hej", "other-guid")
 guildEvent(secretValue, "own-guid")
 guildEvent("Hej", secretValue)

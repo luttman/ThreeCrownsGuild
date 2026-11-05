@@ -5,13 +5,11 @@ Compare stats and see players from your own guild on the map with `/tc` guild to
 Supports WoW Forever (Interface `16xxx`) and TBC Anniversary (`20xxx`). Classic Era, Wrath,
 Cataclysm, MoP, and Retail are not supported. All participants need the same version.
 
-**TBC:** the client does not allow addon messages to channels, and channel chat requires
-player input. The addon therefore uses regular messages prefixed with `GF1#` in a hidden
-transport channel. The addon hides this channel; members without the addon can see its messages.
-Chat and LFM messages are sent when you type or click. Presence is sent as a channel message
-on a keypress or click (roughly every four minutes), and through addon whispers while you are idle.
-Players coming online receive direct replies from other participants. Inactive players are removed
-after ten minutes. TBC support has not yet been fully verified in the game.
+Shared chat and LFM use regular messages in the hidden transport channel. The addon encodes
+these messages on Forever to preserve links and non-ASCII text. Players in the channel can see
+the raw messages if they use a client without the addon. Chat and LFM send when you type or click.
+The addon uses direct addon whispers to announce presence while you are idle and answer roster
+requests. Inactive players are removed after ten minutes.
 
 ## Installation
 

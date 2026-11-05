@@ -9,10 +9,11 @@ local _, addon = ...
 -- Config is read from Guild Info (like GreenWall), identical in every guild:
 --   TCGc:channel:password
 --   TCGp:Guild Name:TAG        (one line per guild, including your own)
--- Forever uses addon messages; the local TBC test uses GF1-prefixed chat in the hidden channel.
+-- Chat travels through the hidden channel. Idle presence uses addon whispers.
 -- Message: <kind>#<tag>#<body>
 --   C chat (CLASS;text) | P presence (level;CLASS;zone) | Q "who is online?" | X logout
 local PFX, HEARTBEAT, EXPIRE, JOIN_DELAY, HISTORY_MAX, ROW_H = "GF1", 240, 600, 15, 200, 16
+local ENCODED_CHUNK = 248 -- leaves room for the marker and splits Base64 on a four-byte boundary
 local GREEN = "|cff40ff40"
 
 local secret = issecretvalue or function() return false end
@@ -21,10 +22,11 @@ local cfg = { guilds = {}, byName = {} }
 local peers = {} -- ["Name"] = { tag, level, class, zone, seen }
 local SendAddon = (C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage
 local SendChannelChat = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+local Encoding = isForever and C_EncodingUtil
 local RegisterPrefix = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or RegisterAddonMessagePrefix
-local joinAt, lastAnnounce, lastQuery, replyPending = 0, 0, 0, false
+local joinAt, lastAnnounce, lastQuery = 0, 0, 0
 local warmup, lastResult, rx = 3, "-", {} -- warmup: a few quick announces after joining (first ones can be dropped)
-local stats = { sent = 0, recv = 0, noConfig = 0 } -- TBC whisper transport, shown by /tc status
+local stats = { sent = 0, recv = 0, noConfig = 0, channelEcho = 0 } -- shown by /tc status
 local f, chat, pool, content -- UI, created on first open
 
 local function parseConfig(text)
@@ -47,6 +49,20 @@ local function myTag()
     return g and cfg.byName[g:lower()]
 end
 
+local function chatName(sender)
+    if isForever and addon and addon.ForeverName then return addon.ForeverName(sender) end
+    return Ambiguate(sender, "none")
+end
+
+local function ownChatName()
+    if isForever and GetUnitName then return GetUnitName("player") end
+    return UnitName("player")
+end
+
+local function chatLocked()
+    return C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown()
+end
+
 local function chanId()
     if not cfg.channel then return nil end
     local id = GetChannelName(cfg.channel)
@@ -54,17 +70,17 @@ local function chanId()
     return nil
 end
 
--- TBC: members of the hidden channel. The client only loads a channel's roster while it is the
+-- The client only loads a channel's roster while it is the
 -- selected one in the channel window, so we select it briefly, copy the roster and put the
 -- player's own selection back. Everything else reads the copy.
 local rosterCache, rosterAt, selectionBefore = {}, -math.huge, nil
 local function channelWindowOpen() return _G.ChannelFrame and ChannelFrame:IsShown() end
 
 local function ourIndex()
-    if not chanId() then return nil end
+    if not chanId() or not GetNumDisplayChannels or not GetChannelDisplayInfo then return nil end
     for index = 1, GetNumDisplayChannels() do
         local name, header, _, number = GetChannelDisplayInfo(index)
-        if not header and number == chanId() and name:lower() == cfg.channel:lower() then return index end
+        if not secret(name) and name and not header and number == chanId() and name:lower() == cfg.channel:lower() then return index end
     end
     return nil
 end
@@ -73,7 +89,7 @@ local function readMembers(index)
     local members = {}
     for i = 1, select(5, GetChannelDisplayInfo(index)) or 0 do
         local member = C_ChatInfo.GetChannelRosterInfo(index, i)
-        if member and not secret(member) then members[Ambiguate(member, "none")] = member end
+        if not secret(member) and member then members[chatName(member)] = member end
     end
     return members
 end
@@ -91,8 +107,10 @@ local function finishRoster()
 end
 
 local function refreshRoster()
+    if InCombatLockdown() or not (C_ChatInfo and C_ChatInfo.GetChannelRosterInfo
+        and GetSelectedDisplayChannel and SetSelectedDisplayChannel) then return end
     local index = ourIndex()
-    if not index or not C_ChatInfo.GetChannelRosterInfo or selectionBefore then return end
+    if not index or selectionBefore then return end
     local selected = GetSelectedDisplayChannel()
     if selected == index then
         finishRoster() -- already loaded, e.g. the player has our channel open
@@ -111,28 +129,36 @@ end
 
 local function whisper(target, kind, body)
     local tag = myTag()
-    if not tag then return end
+    if not tag or chatLocked() then return end
     local ok, res = pcall(SendAddon, PFX, (("%s#%s#%s"):format(kind, tag, body or "")):sub(1, 250), "WHISPER", target)
-    lastResult = kind .. "=" .. tostring(ok and res)
     stats.sent = stats.sent + 1
     if not ok then print(GREEN .. "[TCG]|r send failed: " .. tostring(res)) end
 end
 
+local function sendLine(id, kind, marker, payload)
+    local ok, res = pcall(SendChannelChat, PFX .. marker .. payload, "CHANNEL", nil, id)
+    local submitted = ok and (res == nil or res == true or res == 0)
+    lastResult = kind .. "=" .. (submitted and "submitted" or tostring(ok and res))
+    if not ok then print(GREEN .. "[TCG]|r send failed: " .. tostring(res)) end
+    return submitted
+end
+
 local sendingFromInput = false
 local function send(kind, body)
-    -- TBC channel chat requires player input; timers and incoming events cannot send it.
+    -- Channel chat requires player input. Timers can only send presence whispers.
     local presence = kind == "P" or kind == "Q" or kind == "X"
-    if isTBC and not presence and not sendingFromInput then return false end
+    if chatLocked() or (not presence and not sendingFromInput) then return false end
     local id, tag = chanId(), myTag()
     if not (id and tag) then return false end
     local payload = (("%s#%s#%s"):format(kind, tag, body or "")):sub(1, 250)
     -- Idle: whisper each channel member. During player input: one channel message reaches everybody.
-    if isTBC and presence and not sendingFromInput then
+    if presence and not sendingFromInput then
         local channel, queued, members = cfg.channel, 0, {}
         for name, target in pairs(channelMembers()) do members[name] = target end
         for name, p in pairs(peers) do members[name] = members[name] or p.from or name end
+        local own = ownChatName()
         for name, target in pairs(members) do
-            if name ~= UnitName("player") then
+            if not secret(own) and name ~= own then
                 C_Timer.After(queued * 0.2, function()
                     if cfg.channel == channel and chanId() then whisper(target, kind, body) end
                 end)
@@ -142,15 +168,17 @@ local function send(kind, body)
         -- an empty roster means "not loaded yet" (retry soon); only us in it means nobody to tell
         return queued > 0 or next(members) ~= nil
     end
-    local ok, res
-    if isTBC then
-        ok, res = pcall(SendChannelChat, PFX .. "#" .. payload, "CHANNEL", nil, id)
-    else
-        ok, res = pcall(SendAddon, PFX, payload, "CHANNEL", id)
+    if Encoding then
+        -- Channel chat can rewrite links and reject byte fragments that split UTF-8.
+        local encoded = Encoding.EncodeBase64(payload)
+        if not encoded then return false end
+        if #encoded > ENCODED_CHUNK then
+            return sendLine(id, kind, "+", encoded:sub(1, ENCODED_CHUNK))
+                and sendLine(id, kind, "-", encoded:sub(ENCODED_CHUNK + 1))
+        end
+        return sendLine(id, kind, "@", encoded)
     end
-    lastResult = kind .. "=" .. tostring(ok and res) -- 0/true/nil = ok; other numbers = Enum.SendAddonMessageResult
-    if not ok then print(GREEN .. "[TCG]|r send failed: " .. tostring(res)) end
-    return ok and (res == nil or res == true or res == 0)
+    return sendLine(id, kind, "#", payload)
 end
 
 local function presenceBody()
@@ -165,7 +193,7 @@ local function announce()
     end
 end
 
--- TBC: answer one player directly (kind R) instead of re-announcing to the whole channel
+-- Answer one player directly (kind R) instead of re-announcing to the whole channel.
 local lastReply = {}
 local function replyTo(target)
     if lastReply[target] and GetTime() - lastReply[target] < 20 then return end
@@ -361,7 +389,7 @@ local function sendChat(msg)
     if msg == "" then return end
     local _, class = UnitClass("player")
     if send("C", class .. ";" .. msg) then
-        addChat(myTag(), UnitName("player"), class, msg) -- addon messages don't echo to the sender
+        addChat(myTag(), ownChatName(), class, msg) -- draw the sender's copy locally
     else
         print(("%s[TCG]|r not sent: channel=%s guildTag=%s lastSend=%s"):format(GREEN, tostring(chanId()), tostring(myTag()), lastResult))
     end
@@ -526,10 +554,10 @@ local function syncGuildChat(msg, guid)
             return
         end
     end
-    addChat(tag, UnitName("player"), class, msg, true)
+    addChat(tag, ownChatName(), class, msg, true)
 end
 
-if isTBC then
+do
     local function onChatSent(msg, chatType)
         if not secret(chatType) and chatType == "GUILD" and not secret(msg) then
             chatInput(syncGuildChat, msg, UnitGUID("player"))
@@ -542,14 +570,17 @@ if isTBC then
     end
 end
 
-local guildParts = {}
-local function onAddonMsg(text, sender)
+local guildParts, channelParts = {}, {}
+local function onAddonMsg(text, sender, fromChannelChat)
     local kind, tag, body = strsplit("#", text, 3)
     if not tag then return end
-    local name = Ambiguate(sender, "none")
+    local name, own = chatName(sender), ownChatName()
+    if not secret(own) and name == own then
+        if fromChannelChat then stats.channelEcho = stats.channelEcho + 1 end
+        return
+    end
     rx[kind] = (rx[kind] or 0) + 1
     if kind == "G" or kind == "g" then
-        if name == UnitName("player") then return end
         if kind == "G" then
             local class, length, msg = strsplit(";", body or "", 3)
             length = tonumber(length)
@@ -571,10 +602,9 @@ local function onAddonMsg(text, sender)
         end
         return
     elseif kind == "L" then
-        if name ~= UnitName("player") then onLFM(tag, name, body) end
+        onLFM(tag, name, body)
         return
     elseif kind == "C" then
-        if name == UnitName("player") then return end -- already shown locally on send
         local class, msg = strsplit(";", body or "", 2)
         local p = peers[name] or { level = 0, zone = "" }
         p.tag, p.class, p.seen, p.from = tag, class, GetTime(), sender
@@ -584,20 +614,32 @@ local function onAddonMsg(text, sender)
         local lvl, class, zone = strsplit(";", body or "", 3)
         local known = peers[name] ~= nil
         peers[name] = { tag = tag, level = tonumber(lvl) or 0, class = class, zone = zone or "", seen = GetTime(), from = sender }
-        if isTBC and kind == "P" and not known and name ~= UnitName("player") then replyTo(sender) end
+        if kind == "P" and not known then replyTo(sender) end
     elseif kind == "X" then
         peers[name] = nil
-    elseif kind == "Q" and isTBC and name ~= UnitName("player") then
+    elseif kind == "Q" then
         replyTo(sender)
-    elseif kind == "Q" and name ~= UnitName("player") and not replyPending then
-        -- jitter so everyone doesn't answer at once; skip if we just announced
-        replyPending = true
-        C_Timer.After(math.random() * 15, function()
-            replyPending = false
-            if GetTime() - lastAnnounce > 20 then announce() end
-        end)
     end
     if kind ~= "C" then ThreeCrownsGuild_Refresh() end
+end
+
+local function receiveChannelPacket(text, sender)
+    if text:sub(1, #PFX) ~= PFX or #text > 254 then return end
+    local marker, body = text:sub(#PFX + 1, #PFX + 1), text:sub(#PFX + 2)
+    if marker == "#" then onAddonMsg(body, sender, true); return end
+    if not Encoding then return end
+    if marker == "+" and #body == ENCODED_CHUNK then
+        channelParts[sender] = { body = body, time = GetTime() }
+    elseif marker == "@" or marker == "-" then
+        local part = channelParts[sender]
+        channelParts[sender] = nil
+        if marker == "-" then
+            if not part or GetTime() - part.time > 10 then return end
+            body = part.body .. body
+        end
+        local ok, payload = pcall(Encoding.DecodeBase64, body)
+        if ok and payload and #payload <= 250 then onAddonMsg(payload, sender, true) end
+    end
 end
 
 -- ---------------------------------------------------------------- window
@@ -757,7 +799,7 @@ local GetInfoText = (C_GuildInfo and C_GuildInfo.GetInfoText) or GetGuildInfoTex
 local configReloadPending = false
 local function reloadConfig()
     if not GetInfoText then return end
-    if InCombatLockdown() or (C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown()) then
+    if InCombatLockdown() or chatLocked() then
         configReloadPending = true
         return
     end
@@ -774,6 +816,9 @@ local function tick()
     if configReloadPending then reloadConfig() end
     for sender, part in pairs(guildParts) do
         if GetTime() - part.time > 10 then guildParts[sender] = nil end
+    end
+    for sender, part in pairs(channelParts) do
+        if GetTime() - part.time > 10 then channelParts[sender] = nil end
     end
     for name, p in pairs(peers) do
         if GetTime() - p.seen > EXPIRE then peers[name] = nil end
@@ -823,24 +868,20 @@ end
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_LOGOUT", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE",
-    "ZONE_CHANGED_NEW_AREA", "CHAT_MSG_ADDON", "CHAT_MSG_CHANNEL", "CHAT_MSG_GUILD", "ADDON_LOADED" }) do ev:RegisterEvent(e) end
+    "ZONE_CHANGED_NEW_AREA", "CHAT_MSG_ADDON", "CHAT_MSG_CHANNEL", "ADDON_LOADED" }) do ev:RegisterEvent(e) end
 ev:SetScript("OnEvent", function(_, event, ...)
-    if event == "CHAT_MSG_GUILD" then
-        if not isTBC then syncGuildChat(select(1, ...), select(12, ...)) end
-    elseif event == "CHAT_MSG_CHANNEL" then
-        if not isTBC then return end
+    if event == "CHAT_MSG_CHANNEL" then
         local text, sender = ...
         local channel = select(9, ...)
         if secret(text) or secret(sender) or secret(channel) then return end
-        if cfg.channel and channel and channel:lower() == cfg.channel:lower()
-            and text:sub(1, #PFX + 1) == PFX .. "#" then
-            onAddonMsg(text:sub(#PFX + 2), sender)
+        if cfg.channel and channel and channel:lower() == cfg.channel:lower() then
+            receiveChannelPacket(text, sender)
         end
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, text, dist, sender = ...
         if secret(text) or secret(sender) then return end
         if prefix == PFX and dist == "CHANNEL" then onAddonMsg(text, sender) end
-        if isTBC and prefix == PFX and dist == "WHISPER" then
+        if prefix == PFX and dist == "WHISPER" then
             local kind, tag = strsplit("#", text, 3)
             local configured = false
             for _, guild in ipairs(cfg.guilds) do if guild.tag == tag then configured = true; break end end
@@ -927,10 +968,10 @@ SlashCmdList.THREECROWNSGUILDTOOLS = function(msg)
         for _ in pairs(peers) do n = n + 1 end
         local members = 0
         for _ in pairs(rosterCache) do members = members + 1 end
-        print(("%s[TCG]|r channel=%s joined=%s guildTag=%s peers=%d lastSend=%s rx P/Q/C=%d/%d/%d"
-            .. " whispers out/in=%d/%d dropped(unknown guild)=%d roster=%d"):format(
+        print(("%s[TCG]|r channel=%s joined=%s guildTag=%s peers=%d lastSend=%s rx P/Q/R/C/G=%d/%d/%d/%d/%d"
+            .. " channelEcho=%d whispers out/in=%d/%d dropped(unknown guild)=%d roster=%d"):format(
             GREEN, tostring(cfg.channel), tostring(chanId()), tostring(myTag()), n, lastResult,
-            rx.P or 0, rx.Q or 0, rx.C or 0, stats.sent, stats.recv, stats.noConfig, members))
+            rx.P or 0, rx.Q or 0, rx.R or 0, rx.C or 0, rx.G or 0, stats.channelEcho, stats.sent, stats.recv, stats.noConfig, members))
     elseif command == "roster" then
         local names = {}
         for name in pairs(rosterCache) do names[#names + 1] = name end

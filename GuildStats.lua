@@ -128,11 +128,13 @@ local function receiveStats(sender, message, columns)
     guildStats[sender] = row
 end
 
+function addon.ForeverName(name)
+    -- Forever can send the full name with a trailing realm or separate the surname with a hyphen.
+    return name:match("^(%S+ [^%-]+)") or (name:gsub("^([^%-]+)%-([^%-]+).*$", "%1 %2"))
+end
+
 local function playerKey(name)
-    if isForever then
-        -- Forever can send the full name with a trailing realm or separate the surname with a hyphen.
-        return name:match("^(%S+ [^%-]+)") or (name:gsub("^([^%-]+)%-([^%-]+).*$", "%1 %2"))
-    end
+    if isForever then return addon.ForeverName(name) end
     if name:find("-", 1, true) then return name end
     return name .. "-" .. playerRealm
 end

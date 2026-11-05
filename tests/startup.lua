@@ -6,7 +6,7 @@ file:close()
 
 for _, client in ipairs({ "forever", "tbc" }) do
     local filters, frames, output, sent, whispers = {}, {}, {}, {}, {}
-    local roster = { "Anna-Realm", "Bob-Realm" }
+    local roster = { client == "forever" and "Anna Andersson-Forever" or "Anna-Realm", "Bob-Realm" }
     local selected = 1
     local ticker, removedChannel
     local hardwareInput, blockedCalls = false, 0
@@ -42,6 +42,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.GetSelectedDisplayChannel = function() return selected end
     env.SetSelectedDisplayChannel = function(index) selected = index end
     env.UnitName = function() return "Anna" end
+    if client == "forever" then env.GetUnitName = function() return "Anna Andersson" end end
     env.UnitGUID = function() return "own-guid" end
     env.UnitClass = function() return "Mage", "MAGE" end
     env.UnitLevel = function() return 70 end
@@ -76,13 +77,8 @@ for _, client in ipairs({ "forever", "tbc" }) do
             return roster[member]
         end,
         SendAddonMessage = function(prefix, message, distribution, target)
-            if client == "tbc" then
-                assert(prefix == "GF1" and distribution == "WHISPER" and (target == "Bob-Realm" or target == "Carl-Realm"))
-                whispers[#whispers + 1] = message
-                return 0
-            end
-            assert(prefix == "GF1" and distribution == "CHANNEL" and target == 5)
-            sent[#sent + 1] = message
+            assert(prefix == "GF1" and distribution == "WHISPER" and (target == "Bob-Realm" or target == "Carl-Realm"))
+            whispers[#whispers + 1] = message
             return 0
         end,
     }
@@ -96,22 +92,35 @@ for _, client in ipairs({ "forever", "tbc" }) do
         return frame
     end
     local registerFilter = function(event, callback) filters[event] = callback end
+    local function sendChatMessage(message, distribution, language, target)
+        if not hardwareInput then
+            blockedCalls = blockedCalls + 1
+            error("Protected channel send outside player input")
+        end
+        if distribution == "GUILD" then return end
+        assert(distribution == "CHANNEL" and language == nil and target == 5 and #message <= 254)
+        assert(message:match(client == "forever" and "^GF1[@+%-][%w+/=]+$" or "^GF1#"))
+        sent[#sent + 1] = message
+    end
     if client == "forever" then
         env.ChatFrameUtil = { AddMessageEventFilter = registerFilter }
         env.ChatFrame1.RemoveChannel = function(_, channel) removedChannel = channel end
+        env.C_ChatInfo.SendChatMessage = sendChatMessage
+        local encoded, count = {}, 0
+        env.C_EncodingUtil = {
+            EncodeBase64 = function(payload)
+                count = count + 1
+                -- Stand in for the client codec while preserving Base64's length and safe alphabet.
+                local token = ("%04d"):format(count) .. ("A"):rep(math.ceil(#payload / 3) * 4 - 4)
+                encoded[token] = payload
+                return token
+            end,
+            DecodeBase64 = function(token) return encoded[token] end,
+        }
     else
         env.ChatFrame_AddMessageEventFilter = registerFilter
         env.ChatFrame_RemoveChannel = function(_, channel) removedChannel = channel end
-        env.SendChatMessage = function(message, distribution, language, target)
-            if not hardwareInput then
-                blockedCalls = blockedCalls + 1
-                error("Protected channel send outside player input")
-            end
-            if distribution == "GUILD" then return end
-            assert(distribution == "CHANNEL" and language == nil and target == 5)
-            assert(message:sub(1, 4) == "GF1#" and #message <= 254)
-            sent[#sent + 1] = message
-        end
+        env.SendChatMessage = sendChatMessage
     end
     env.hooksecurefunc = function(target, key, callback)
         if type(target) == "string" then callback, key, target = key, target, env end
@@ -124,12 +133,16 @@ for _, client in ipairs({ "forever", "tbc" }) do
     end
     local chunk = assert(compile(source))
     setfenv(chunk, env)
-    chunk()
+    local addon = {}
+    local guildStatsChunk = assert(loadfile("GuildStats.lua"))
+    setfenv(guildStatsChunk, env)
+    guildStatsChunk("ThreeCrownsGuild", addon)
+    chunk("ThreeCrownsGuild", addon)
     assert(env.SLASH_THREECROWNSGUILD1 == "/tcg" and env.SLASH_THREECROWNSGUILDTOOLS1 == "/tc", client)
     assert(type(env.SlashCmdList.THREECROWNSGUILD) == "function", client)
     assert(filters.CHAT_MSG_CHANNEL and filters.CHAT_MSG_CHANNEL_NOTICE, client)
     local frame = frames[#frames]
-    assert(frame.events.PLAYER_LOGIN and frame.events.CHAT_MSG_GUILD, client)
+    assert(frame.events.PLAYER_LOGIN and frame.events.CHAT_MSG_CHANNEL and not frame.events.CHAT_MSG_GUILD, client)
     frame.handler(frame, "PLAYER_LOGIN")
     assert(#output == 1 and output[1]:find("/tcg help", 1, true), client .. ": missing login hint")
     assert(output[1]:find("Sync |cff40ff40on|r", 1, true), client .. ": missing green sync status")
@@ -168,6 +181,35 @@ for _, client in ipairs({ "forever", "tbc" }) do
     hardwareInput = false
     local initialSent = #sent
     assert(initialSent == 1 and #env.GuildFriendsDB.history == 1, client)
+    local function receive(channel, text, sender)
+        frame.handler(frame, "CHAT_MSG_CHANNEL", text, sender or "Bob-Realm", nil, nil, nil, nil, nil, nil, channel)
+    end
+    if client == "forever" then
+        local history = env.GuildFriendsDB.history
+        assert(history[1].name == "Anna Andersson")
+        receive("TestChannel", sent[1], "Anna Andersson-Forever")
+        local incoming = "GF1@" .. env.C_EncodingUtil.EncodeBase64("C#G2#MAGE;Hi")
+        receive("OtherChannel", incoming, "Anna-Svensson")
+        assert(#history == 1)
+        receive("TestChannel", incoming, "Anna-Svensson")
+        assert(#history == 2 and history[2].name == "Anna Svensson" and history[2].msg == "Hi",
+            "Confused another character with the same first name for the local player")
+        local msg = ("Å"):rep(120) .. " |Hitem:123|h[Link]|h"
+        hardwareInput = true
+        env.C_ChatInfo.SendChatMessage(msg, "GUILD")
+        hardwareInput = false
+        assert(#sent == initialSent + 3 and sent[2]:sub(1, 4) == "GF1+" and sent[3]:sub(1, 4) == "GF1-")
+        receive("TestChannel", sent[3]) -- reject a continuation with no opening fragment
+        assert(#history == 3)
+        for i = 2, #sent do receive("TestChannel", sent[i]) end
+        assert(#history == 4 and history[4].msg == msg and history[4].name == "Bob Realm", "Guild sync changed the text")
+        time = 80
+        ticker()
+        assert(#sent == initialSent + 3 and blockedCalls == 0 and #whispers > 0, "Idle Forever presence must whisper")
+        env.SlashCmdList.THREECROWNSGUILDTOOLS("status")
+        assert(output[#output]:find("lastSend=g=submitted", 1, true) and output[#output]:find("channelEcho=1", 1, true),
+            "Presence hid the channel result or the channel echo was not counted")
+    end
     if client == "tbc" then
         assert(#whispers == 0 and selected == 1, "Chat input must not announce presence")
         local function upvalue(callback, wanted)
@@ -196,9 +238,6 @@ for _, client in ipairs({ "forever", "tbc" }) do
         assert(#whispers == 2 and whispers[2]:find("^R#G1#"), "Who-request was not answered to the requester only")
         presence("Bob-Realm", "C#G1#MAGE;Whisper chat")
         assert(#env.GuildFriendsDB.history == 1, "Whisper transport accepted chat")
-        local function receive(channel, text)
-            frame.handler(frame, "CHAT_MSG_CHANNEL", text, "Bob-Realm", nil, nil, nil, nil, nil, nil, channel)
-        end
         receive("OtherChannel", "GF1#C#G2#MAGE;Wrong channel")
         receive("TestChannel", "Not an addon message")
         assert(#env.GuildFriendsDB.history == 1)
@@ -207,8 +246,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
         assert(#sent == initialSent, "Channel input was sent back out")
         time = 80
         ticker()
-        frame.handler(frame, "CHAT_MSG_GUILD", "Guild hello", "Anna", nil, nil, nil, nil, nil, nil, nil, nil, 1, "own-guid")
-        assert(#sent == initialSent and blockedCalls == 0, "Timer or guild event attempted a protected send")
+        assert(#sent == initialSent and blockedCalls == 0, "Timer attempted a protected send")
         assert(#whispers == 4 and whispers[3]:find("^Q#G1#") and whispers[4]:find("^P#G1#"), "Idle heartbeat was not sent")
         for now = 160, 880, 80 do
             time = now
@@ -231,7 +269,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
         time = 1900
         ticker()
         assert(#whispers == beforeEmpty, "Presence sent to a player who left the channel")
-        assert(upvalue(upvalue(frame.handler, "onAddonMsg"), "lastAnnounce") == 1900,
+        assert(upvalue(ticker, "lastAnnounce") == 1900,
             "Presence kept retrying when alone in the channel")
         roster = { "Anna-Realm", "Bob-Realm", "Carl-Realm" }
         presence("Carl-Realm") -- the channel roster copy is incomplete: it must not decide who is heard
@@ -288,9 +326,9 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.UnitExists, env.IsInInstance, env.PlaySound = function() return true end, function() return false end, function() end
     local function lfmIn(body)
         if client == "forever" then
-            frame.handler(frame, "CHAT_MSG_ADDON", "GF1", "L#G2#" .. body, "CHANNEL", "Bob-Realm")
+            receive("TestChannel", "GF1@" .. env.C_EncodingUtil.EncodeBase64("L#G2#" .. body))
         else
-            frame.handler(frame, "CHAT_MSG_CHANNEL", "GF1#L#G2#" .. body, "Bob-Realm", nil, nil, nil, nil, nil, nil, "TestChannel")
+            receive("TestChannel", "GF1#L#G2#" .. body)
         end
     end
     time = 5000
@@ -315,7 +353,8 @@ for _, client in ipairs({ "forever", "tbc" }) do
     hardwareInput = true
     env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm Karazhan")
     hardwareInput = false
-    assert(#sent == before + 1 and sent[#sent]:find("L#G1#1,1,2;Karazhan;Anna", 1, true), client .. ": LFM not sent with detected roles")
+    local lfmPayload = client == "forever" and env.C_EncodingUtil.DecodeBase64(sent[#sent]:sub(5)) or sent[#sent]
+    assert(#sent == before + 1 and lfmPayload:find("L#G1#1,1,2;Karazhan;Anna", 1, true), client .. ": LFM not sent with detected roles")
     assert(texts[#texts]:find("Karazhan", 1, true), client .. ": sender got no confirmation notice")
     hardwareInput = true
     env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm Again")
