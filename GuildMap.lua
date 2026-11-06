@@ -80,6 +80,14 @@ function addon.ClearPositions()
     wipe(positions)
 end
 
+function addon.CountGuildPositions()
+    local count, now = 0, GetTime()
+    for _, position in pairs(positions) do
+        if now - position.seen < POSITION_TTL then count = count + 1 end
+    end
+    return count
+end
+
 function addon.DrawPositions(visible)
     visible = visible and next(positions) ~= nil
     local mapFrame, mini = WorldMapFrame, Minimap

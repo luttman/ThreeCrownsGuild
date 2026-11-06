@@ -105,11 +105,14 @@ GuildFriendsDB = {
 }
 fire("PLAYER_LOGIN")
 timers[8](); timers[60]()
-assert(#packets == 1 and packets[1]:match("^B;"), "Defaults must share stats and keep positions private")
+assert(#packets == 2 and packets[1] == "M;MAGE;1411;50000;50000" and packets[2]:match("^B;"),
+    "Defaults must share positions and stats")
+assert(addon.GuildMapStatus() == "Map dots on. Position sharing on. Guildmates sharing a recent position: 0.")
 assert(requests == 1)
 packets = {}
 addon.GuildCommand("show")
 assert(packets[#packets] == "M;MAGE;1411;50000;50000")
+assert(addon.GuildMapStatus():find("Position sharing on", 1, true))
 addon.GuildCommand("hide")
 assert(packets[#packets] == "H")
 timers[8]()
@@ -125,6 +128,7 @@ assert(dots[Minimap].visible and dots[Minimap].x == 20 and dots[Minimap].y == -1
 assert(dots[Minimap].color[2] == 0.78)
 addon.GuildCommand("pins off")
 assert(not dots[mapCanvas].visible and not dots[Minimap].visible)
+assert(addon.GuildMapStatus() == "Map dots off. Position sharing off. Guildmates sharing a recent position: 1.")
 addon.GuildCommand("pins on")
 assert(dots[mapCanvas].visible and dots[Minimap].visible)
 fire("CHAT_MSG_ADDON", "TCGSTATS1", "H", "GUILD", "Bob-Realm")
@@ -132,6 +136,7 @@ timers[0.25]()
 assert(not dots[mapCanvas].visible and not dots[Minimap].visible)
 fire("CHAT_MSG_ADDON", "TCGSTATS1", "M;MAGE;1411;52000;51000", "GUILD", "Bob-Realm")
 now = now + 30
+assert(addon.CountGuildPositions() == 0, "Map status counted an expired position")
 timers[0.25]()
 assert(not dots[mapCanvas].visible and not dots[Minimap].visible, "Old positions did not expire")
 
@@ -197,8 +202,11 @@ fire("TIME_PLAYED_MSG", 7200, 0)
 assert(packets[#packets] == "D", "Race results were sent after sharing was disabled")
 fire("CHAT_MSG_ADDON", "TCGSTATS1", "D", "GUILD", "Bob-Realm")
 assert(shared["Bob Realm"] == nil)
+addon.GuildCommand("pins off")
 fire("PLAYER_LOGIN")
 local packetsBefore = #packets
+timers[8]()
 timers[60]()
 assert(#packets == packetsBefore + 1 and packets[#packets] == "D", "Login reset the saved sharing opt-out")
+assert(addon.GuildMapStatus() == "Map dots off. Position sharing off. Guildmates sharing a recent position: 0.")
 print("Guild map, native stats, and sharing checks passed.")

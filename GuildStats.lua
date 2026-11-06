@@ -272,6 +272,12 @@ local function show(view)
     if view == "stats" or view == "race" then requestPlayed() end
 end
 
+function addon.GuildMapStatus()
+    if not settings then return end
+    return ("Map dots %s. Position sharing %s. Guildmates sharing a recent position: %d."):format(
+        db.mapPins == false and "off" or "on", settings.sharePosition and "on" or "off", addon.CountGuildPositions())
+end
+
 function addon.GuildCommand(command)
     if not settings then return false end
     if command == "" or views[command] then
@@ -315,6 +321,7 @@ frame:SetScript("OnEvent", function(_, event, a, b, ...)
         db.characterStats[settingsKey] = db.characterStats[settingsKey] or {}
         settings = db.characterStats[settingsKey]
         if settings.shareStats == nil then settings.shareStats = true end
+        if settings.sharePosition == nil then settings.sharePosition = true end
         settings.race = settings.race or {}
         played = settings.apiPlayed
         RegisterPrefix(PREFIX)

@@ -37,8 +37,9 @@ The `TCG` prefix avoids conflicts with GreenWall. Older `GFc:`/`GFp:` and `MGc:`
 ## Shared chat
 
 Write in guild chat (`/g`) as usual. The addon shares your own messages with addon users in the
-connected guilds. Synchronization is enabled by default. Disable it with `/tcg sync off` and enable
-it again with `/tcg sync on`. The addon saves this setting for your account.
+connected guilds when synchronization is enabled. Synchronization is off by default. Use
+`/tcg sync on` to enable it or `/tcg sync off` to disable it. The addon saves this setting for your account.
+If sync was already on, your first login after this update turns it off and shows a notice.
 Disabling synchronization stops automatic forwarding of your own guild messages. You can still
 read shared messages and send messages manually with `/tcg text`.
 Officer chat, regular whispers, and messages from players without the addon are not forwarded.
@@ -92,9 +93,10 @@ the client doesn't provide.
 The level race records milestones as you reach them with the addon enabled. Each column sorts by
 the play time it took to reach that level. Race results use the same sharing setting as guild stats.
 
-Stat sharing is on by default, and position sharing is off by default. Each character can change
-both settings separately. Guildmates need the addon to see your position or stats. The addon keeps
-the latest shared stats for offline guildmates.
+Stat sharing, outdoor position sharing, and guild map dots are on by default. Use `/tc hide` to stop
+sharing your position on the current character and `/tc pins off` to hide guild dots on your account.
+Guildmates need the addon to see your position or stats. The addon keeps the latest shared stats for
+offline guildmates.
 When you turn stat sharing off, guildmates remove your entry when they receive the update. Map dots
 expire after 30 seconds without an update. The minimap shows only dots within its current view radius.
 

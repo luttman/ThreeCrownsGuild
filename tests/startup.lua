@@ -5,7 +5,7 @@ local source = file:read("*a")
 file:close()
 
 for _, client in ipairs({ "forever", "tbc" }) do
-    local filters, frames, output, sent, whispers = {}, {}, {}, {}, {}
+    local filters, frames, output, sent, whispers, popups = {}, {}, {}, {}, {}, {}
     local roster = { client == "forever" and "Anna Andersson-Forever" or "Anna-Realm", "Bob-Realm" }
     local selected = 1
     local ticker, removedChannel
@@ -16,7 +16,10 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env._G = env
     env.GetBuildInfo = function() return "", "", "", client == "forever" and 16001 or 20506 end
     env.SlashCmdList = {}
+    env.OKAY = client == "forever" and "Okay" or nil
     env.StaticPopupDialogs = {}
+    env.StaticPopup_Show = function(key) popups[#popups + 1] = assert(env.StaticPopupDialogs[key]) end
+    env.ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
     env.strtrim = function(text) return text:match("^%s*(.-)%s*$") end
     env.print = function(text) output[#output + 1] = text end
     env.GetTime = function() return time end
@@ -77,7 +80,9 @@ for _, client in ipairs({ "forever", "tbc" }) do
             return roster[member]
         end,
         SendAddonMessage = function(prefix, message, distribution, target)
-            assert(prefix == "GF1" and distribution == "WHISPER" and (target == "Bob-Realm" or target == "Carl-Realm"))
+            local validTarget = client == "forever" and target == "Bob Realm" or client == "tbc"
+                and (target == "Bob-Realm" or target == "Carl-Realm")
+            assert(prefix == "GF1" and distribution == "WHISPER" and validTarget)
             whispers[#whispers + 1] = message
             return 0
         end,
@@ -97,7 +102,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
             blockedCalls = blockedCalls + 1
             error("Protected channel send outside player input")
         end
-        if distribution == "GUILD" then return end
+        if distribution == "GUILD" or distribution == "WHISPER" then return end
         assert(distribution == "CHANNEL" and language == nil and target == 5 and #message <= 254)
         assert(message:match(client == "forever" and "^GF1[@+%-][%w+/=]+$" or "^GF1#"))
         sent[#sent + 1] = message
@@ -145,7 +150,9 @@ for _, client in ipairs({ "forever", "tbc" }) do
     assert(frame.events.PLAYER_LOGIN and frame.events.CHAT_MSG_CHANNEL and not frame.events.CHAT_MSG_GUILD, client)
     frame.handler(frame, "PLAYER_LOGIN")
     assert(#output == 1 and output[1]:find("/tcg help", 1, true), client .. ": missing login hint")
-    assert(output[1]:find("Sync |cff40ff40on|r", 1, true), client .. ": missing green sync status")
+    assert(env.GuildFriendsDB.sync == false and output[1]:find("Sync |cffff6060off|r", 1, true),
+        client .. ": sync should default to off")
+    assert(#popups == 0, client .. ": new accounts should not receive the reset popup")
     env.SlashCmdList.THREECROWNSGUILD("sync off")
     assert(env.GuildFriendsDB.sync == false, client)
     env.SlashCmdList.THREECROWNSGUILD("sync on")
@@ -209,6 +216,25 @@ for _, client in ipairs({ "forever", "tbc" }) do
         env.SlashCmdList.THREECROWNSGUILDTOOLS("status")
         assert(output[#output]:find("lastSend=g=submitted", 1, true) and output[#output]:find("channelEcho=1", 1, true),
             "Presence hid the channel result or the channel echo was not counted")
+        local filter = assert(filters.CHAT_MSG_SYSTEM)
+        local offline = env.ERR_CHAT_PLAYER_NOT_FOUND_S:format("Bob Realm")
+        assert(filter(nil, nil, offline) and filter(nil, nil, offline), "Background whisper notice was shown")
+        assert(not filter(nil, nil, env.ERR_CHAT_PLAYER_NOT_FOUND_S:format("Other Player")))
+        assert(not filter(nil, nil, "You are now AFK"))
+        time = time + 6
+        assert(not filter(nil, nil, offline), "An expired notice was hidden")
+        local beforeRetry = #whispers
+        time = time + 20
+        ticker()
+        assert(#whispers == beforeRetry, "An unavailable player was whispered during the retry delay")
+        time = time + 300
+        ticker()
+        assert(#whispers > beforeRetry, "Background whispers did not resume after the retry delay")
+        assert(filter(nil, nil, offline))
+        hardwareInput = true
+        env.C_ChatInfo.SendChatMessage("Hello", "WHISPER", nil, "bob-realm")
+        hardwareInput = false
+        assert(not filter(nil, nil, offline), "A player-initiated whisper error was hidden")
     end
     if client == "tbc" then
         assert(#whispers == 0 and selected == 1, "Chat input must not announce presence")
@@ -360,5 +386,19 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm Again")
     hardwareInput = false
     assert(#sent == before + 1, client .. ": LFM sent twice within 30 seconds")
+
+    env.GuildFriendsDB = { sync = false }
+    frame.handler(frame, "PLAYER_LOGIN")
+    assert(env.GuildFriendsDB.sync == false and #popups == 0, client .. ": already-off sync showed a reset popup")
+    env.GuildFriendsDB = { sync = true }
+    frame.handler(frame, "PLAYER_LOGIN")
+    assert(env.GuildFriendsDB.sync == false and #popups == 1 and popups[1].text:find("/tcg sync on", 1, true),
+        client .. ": existing sync was not turned off with an explanation")
+    assert(popups[1].button1 == (env.OKAY or "OK"), client .. ": sync reset popup has no dismiss button")
+    frame.handler(frame, "PLAYER_LOGIN")
+    assert(#popups == 1, client .. ": sync reset popup was repeated")
+    env.SlashCmdList.THREECROWNSGUILD("sync on")
+    frame.handler(frame, "PLAYER_LOGIN")
+    assert(env.GuildFriendsDB.sync == true and #popups == 1, client .. ": sync opt-in did not survive login")
 end
 print("Full addon startup and slash command checks passed (Forever + TBC).")

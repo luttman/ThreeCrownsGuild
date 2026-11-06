@@ -50,7 +50,7 @@ local init = [[
 local send, secretValue = ...
 local db = GuildFriendsDB
 local peers, rx = {}, {}
-local GREEN, HISTORY_MAX, JOIN_DELAY, PFX = "", 200, 15, "GF1"
+local GREEN, HISTORY_MAX, JOIN_DELAY, PFX = "|cff40ff40", 200, 15, "GF1"
 local function myTag() return "G1" end
 local function render(rec) return rec.msg end
 local function secret(value) return value == secretValue end
@@ -60,8 +60,14 @@ local function ownChatName() return UnitName("player") end
 local onAddonMsg, syncGuildChat = assert(compile(init .. chatCode .. events .. commands
     .. "\nreturn onAddonMsg, syncGuildChat"))(send, secretValue)
 frame.handler(nil, "PLAYER_LOGIN")
-assert(GuildFriendsDB.sync == true)
+assert(GuildFriendsDB.sync == false)
 local guildEvent = syncGuildChat
+guildEvent("Private by default", "own-guid")
+assert(#packets == 0, "Forwarded a guild message before sync was enabled")
+SlashCmdList.THREECROWNSGUILD("sync on")
+frame.handler(nil, "PLAYER_LOGIN")
+assert(GuildFriendsDB.sync == true and warnings[#warnings]:find("Sync |cff40ff40on|r", 1, true),
+    "Login did not preserve the saved opt-in")
 guildEvent("Hej", "other-guid")
 guildEvent(secretValue, "own-guid")
 guildEvent("Hej", secretValue)

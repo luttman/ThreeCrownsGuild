@@ -127,10 +127,20 @@ local function channelMembers()
     return rosterCache
 end
 
+local whisperNotices, whisperRetryAt = {}, {}
+local WHISPER_NOTICE_WINDOW, WHISPER_RETRY_DELAY = 5, 300
 local function whisper(target, kind, body)
     local tag = myTag()
     if not tag or chatLocked() then return end
+    local name, now = chatName(target), GetTime()
+    if isForever then target = name end
+    name = name:lower()
+    if (whisperRetryAt[name] or 0) > now then return end
+    local previous = whisperNotices[name]
+    if previous and previous.expires > now and not previous.background then return end
+    whisperNotices[name] = { expires = now + WHISPER_NOTICE_WINDOW, background = true }
     local ok, res = pcall(SendAddon, PFX, (("%s#%s#%s"):format(kind, tag, body or "")):sub(1, 250), "WHISPER", target)
+    if not ok or (res ~= nil and res ~= true and res ~= 0) then whisperNotices[name] = previous end
     stats.sent = stats.sent + 1
     if not ok then print(GREEN .. "[TCG]|r send failed: " .. tostring(res)) end
 end
@@ -558,9 +568,12 @@ local function syncGuildChat(msg, guid)
 end
 
 do
-    local function onChatSent(msg, chatType)
-        if not secret(chatType) and chatType == "GUILD" and not secret(msg) then
+    local function onChatSent(msg, chatType, _, target)
+        if secret(chatType) then return end
+        if chatType == "GUILD" and not secret(msg) then
             chatInput(syncGuildChat, msg, UnitGUID("player"))
+        elseif chatType == "WHISPER" and not secret(target) and type(target) == "string" then
+            whisperNotices[chatName(target):lower()] = { expires = GetTime() + WHISPER_NOTICE_WINDOW }
         end
     end
     if C_ChatInfo and C_ChatInfo.SendChatMessage then
@@ -613,6 +626,7 @@ local function onAddonMsg(text, sender, fromChannelChat)
     elseif kind == "P" or kind == "R" then
         local lvl, class, zone = strsplit(";", body or "", 3)
         local known = peers[name] ~= nil
+        whisperRetryAt[name:lower()] = nil
         peers[name] = { tag = tag, level = tonumber(lvl) or 0, class = class, zone = zone or "", seen = GetTime(), from = sender }
         if kind == "P" and not known then replyTo(sender) end
     elseif kind == "X" then
@@ -814,6 +828,13 @@ end
 
 local function tick()
     if configReloadPending then reloadConfig() end
+    local now = GetTime()
+    for name, notice in pairs(whisperNotices) do
+        if notice.expires <= now then whisperNotices[name] = nil end
+    end
+    for name, retryAt in pairs(whisperRetryAt) do
+        if retryAt <= now then whisperRetryAt[name] = nil end
+    end
     for sender, part in pairs(guildParts) do
         if GetTime() - part.time > 10 then guildParts[sender] = nil end
     end
@@ -850,6 +871,24 @@ local AddMessageEventFilter = (ChatFrameUtil and ChatFrameUtil.AddMessageEventFi
 for _, ev in ipairs({ "CHAT_MSG_CHANNEL", "CHAT_MSG_CHANNEL_NOTICE", "CHAT_MSG_CHANNEL_JOIN", "CHAT_MSG_CHANNEL_LEAVE" }) do
     AddMessageEventFilter(ev, hideChannel)
 end
+if ERR_CHAT_PLAYER_NOT_FOUND_S then
+    local before, after = ERR_CHAT_PLAYER_NOT_FOUND_S:match("^(.-)%%s(.*)$")
+    if not before then before, after = ERR_CHAT_PLAYER_NOT_FOUND_S:match("^(.-)%%1%$s(.*)$") end
+    if before then
+        local pattern = "^" .. before:gsub("(%W)", "%%%1") .. "(.+)" .. after:gsub("(%W)", "%%%1") .. "$"
+        AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, text)
+            if secret(text) or type(text) ~= "string" then return end
+            local target = text:match(pattern)
+            local name = target and chatName(target):lower()
+            local notice = name and whisperNotices[name]
+            local now = GetTime()
+            if notice and notice.background and notice.expires > now then
+                whisperRetryAt[name] = now + WHISPER_RETRY_DELAY
+                return true
+            end
+        end)
+    end
+end
 
 -- TBC: any key press or mouse click is player input, so an active player announces with one
 -- channel message (the transport that works for chat) instead of a whisper per channel member.
@@ -865,6 +904,15 @@ local function setupInput()
     input:SetScript("OnKeyDown", onPlayerInput)
     WorldFrame:HookScript("OnMouseDown", onPlayerInput)
 end
+
+StaticPopupDialogs.THREECROWNSGUILD_SYNC_RESET = {
+    text = "ThreeCrownsGuild turned off automatic guild chat forwarding for your account.\n\n"
+        .. "Type /tcg to open shared chat, or /tcg Hello! to send a message to connected guilds.\n\n"
+        .. "Type /tcg sync on to forward your /g messages automatically.\n"
+        .. "Type /tcg help for more chat commands.\n"
+        .. "Type /tc stats to open the guild leaderboard.",
+    button1 = OKAY or "OK", timeout = 0, whileDead = 1, hideOnEscape = 1,
+}
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_LOGOUT", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE",
@@ -902,7 +950,9 @@ ev:SetScript("OnEvent", function(_, event, ...)
         RegisterPrefix(PFX)
         if db.tag == nil then db.tag = true end
         if db.echo == nil then db.echo = true end
-        if db.sync == nil then db.sync = true end
+        local syncReset = not db.syncDefaultOffApplied and db.sync == true
+        if not db.syncDefaultOffApplied or db.sync == nil then db.sync = false end
+        db.syncDefaultOffApplied = true
         if db.lfm == nil then db.lfm = true end
         if db.surname == nil then db.surname = true end
         db.history = db.history or {}
@@ -915,6 +965,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if _G.FriendsFrame then pcall(FriendsFrame.HookScript, FriendsFrame, "OnShow", scan) end -- old Guild tab is built late
         local syncStatus = db.sync and (GREEN .. "on") or "|cffff6060off"
         print(GREEN .. "[TCG]|r Sync " .. syncStatus .. "|r. /tcg help for chat. /tc help for guild tools.")
+        if syncReset then StaticPopup_Show("THREECROWNSGUILD_SYNC_RESET") end
     elseif event == "PLAYER_LOGOUT" then
         send("X")
     elseif event == "ZONE_CHANGED_NEW_AREA" then
@@ -972,6 +1023,8 @@ SlashCmdList.THREECROWNSGUILDTOOLS = function(msg)
             .. " channelEcho=%d whispers out/in=%d/%d dropped(unknown guild)=%d roster=%d"):format(
             GREEN, tostring(cfg.channel), tostring(chanId()), tostring(myTag()), n, lastResult,
             rx.P or 0, rx.Q or 0, rx.R or 0, rx.C or 0, rx.G or 0, stats.channelEcho, stats.sent, stats.recv, stats.noConfig, members))
+        local mapStatus = addon and addon.GuildMapStatus and addon.GuildMapStatus()
+        if mapStatus then print(GREEN .. "[TCG]|r " .. mapStatus) end
     elseif command == "roster" then
         local names = {}
         for name in pairs(rosterCache) do names[#names + 1] = name end
@@ -979,7 +1032,9 @@ SlashCmdList.THREECROWNSGUILDTOOLS = function(msg)
         print(("%s[TCG]|r channel members (%d): %s"):format(GREEN, #names, table.concat(names, ", ")))
     elseif command == "help" then
         print(GREEN .. "[TCG]|r /tc stats opens guild stats. Use /tc deaths or /tc race to switch views.")
-        print("/tc show shares your position. /tc hide stops sharing it. /tc pins on or off controls map dots.")
+        print("Outdoor position sharing with your guild is on by default. Use /tc hide to stop sharing or /tc show to resume.")
+        print("Guild map dots are on by default. Use /tc pins off to hide them or /tc pins on to show them.")
+        print("Use /tc status to check map settings and received positions.")
         print("/tc share on or off controls stat sharing. /tc who refreshes the roster.")
         print("/tc lfm opens group finder. Use /tc lfm <dungeon> to send a request or /tc lfm on or off for notices.")
         print("/tc status and /tc roster show diagnostics. Use /tcg help for chat commands.")
