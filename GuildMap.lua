@@ -88,7 +88,7 @@ function addon.CountGuildPositions()
     return count
 end
 
-function addon.DrawPositions(visible)
+function addon.DrawPositions(visible, groupMembers)
     visible = visible and next(positions) ~= nil
     local mapFrame, mini = WorldMapFrame, Minimap
     local canvas = visible and C_Map and mapFrame and mapFrame.GetCanvas and mapFrame:IsShown() and mapFrame:GetCanvas()
@@ -108,7 +108,7 @@ function addon.DrawPositions(visible)
     for name, p in pairs(positions) do
         if now - p.seen >= POSITION_TTL then
             positions[name] = nil
-        elseif canvas or north then
+        elseif (canvas or north) and not groupMembers[name] then
             local peerContinent, worldPoint
             if (north or viewedMap ~= p.map) and C_Map.GetWorldPosFromMapPos then
                 peerContinent, worldPoint = C_Map.GetWorldPosFromMapPos(p.map, CreateVector2D(p.x, p.y))

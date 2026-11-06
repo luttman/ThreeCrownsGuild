@@ -1,6 +1,7 @@
 -- Run from the addon directory with Lua 5.1 or LuaJIT.
 local addon, packets, timers, dots = {}, {}, {}, {}
 local now, guild, requests, level = 100, "Test Guild", 0, 9
+local party, raid = {}, {}
 local frame
 local function fire(event, ...)
     assert(frame.events[event], event)
@@ -24,7 +25,14 @@ local nativeStats = { [98] = "1,234", [107] = "2\226\128\175456", [329] = "--", 
 GetStatistic = function(id) return nativeStats[id] end
 IsInInstance = function() return false end
 UnitFullName = function() return "Anna", "Forever" end
-GetUnitName = function() return "Anna Forever" end
+GetUnitName = function(unit)
+    if unit == "player" then return "Anna Forever" end
+    local index = tonumber(unit:match("%d+$"))
+    return (unit:match("^raid") and raid or party)[index]
+end
+IsInRaid = function() return #raid > 0 end
+GetNumGroupMembers = function() return #raid end
+GetNumSubgroupMembers = function() return #party end
 UnitClass = function() return "Mage", "MAGE" end
 UnitLevel = function() return level end
 RequestTimePlayed = function() requests = requests + 1 end
@@ -126,6 +134,22 @@ timers[0.25]()
 assert(dots[mapCanvas].visible and dots[mapCanvas].x == 260 and dots[mapCanvas].y == -204)
 assert(dots[Minimap].visible and dots[Minimap].x == 20 and dots[Minimap].y == -10)
 assert(dots[Minimap].color[2] == 0.78)
+party = { "Bob Other-Realm" }
+fire("GROUP_ROSTER_UPDATE")
+timers[0.25]()
+assert(dots[mapCanvas].visible and dots[Minimap].visible, "A shared first name hid a guildmate's dots")
+party = { "Bob Realm" }
+fire("GROUP_ROSTER_UPDATE")
+timers[0.25]()
+assert(not dots[mapCanvas].visible and not dots[Minimap].visible, "Party member dots stayed visible")
+party, raid = {}, { "Anna Forever", "Bob Realm-Realm" }
+fire("GROUP_ROSTER_UPDATE")
+timers[0.25]()
+assert(not dots[mapCanvas].visible and not dots[Minimap].visible, "Raid member dots stayed visible")
+raid = {}
+fire("GROUP_ROSTER_UPDATE")
+timers[0.25]()
+assert(dots[mapCanvas].visible and dots[Minimap].visible, "Dots did not return after leaving the raid")
 addon.GuildCommand("pins off")
 assert(not dots[mapCanvas].visible and not dots[Minimap].visible)
 assert(addon.GuildMapStatus() == "Map dots off. Position sharing off. Guildmates sharing a recent position: 1.")

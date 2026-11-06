@@ -10,6 +10,7 @@ local RegisterPrefix = C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix or R
 local db, player, playerRealm, guild, settings, guildStats
 local played, playedRequested
 local sentPosition
+local groupMembers = {}
 local views = {
     stats = {
         { "quests", "Quests", 98 }, { "kills", "Mob kills", 107 }, { "dungeons", "Dungeons", 932 },
@@ -137,6 +138,17 @@ local function playerKey(name)
     if isForever then return addon.ForeverName(name) end
     if name:find("-", 1, true) then return name end
     return name .. "-" .. playerRealm
+end
+
+local function updateGroupMembers()
+    wipe(groupMembers)
+    local raid = IsInRaid()
+    local prefix = raid and "raid" or "party"
+    local count = raid and GetNumGroupMembers() or GetNumSubgroupMembers()
+    for i = 1, count do
+        local name = GetUnitName(prefix .. i, true)
+        if not secret(name) and name then groupMembers[playerKey(name)] = true end
+    end
 end
 
 local function updateGuild()
@@ -292,7 +304,7 @@ function addon.GuildCommand(command)
         print("[TCG] Guild position sharing " .. (settings.sharePosition and "on." or "off."))
     elseif command == "pins on" or command == "pins off" then
         db.mapPins = command == "pins on"
-        addon.DrawPositions(db.mapPins)
+        addon.DrawPositions(db.mapPins, groupMembers)
         print("[TCG] Guild map dots " .. (db.mapPins and "on." or "off."))
     elseif command == "share on" or command == "share off" then
         settings.shareStats = command == "share on"
@@ -307,7 +319,7 @@ end
 
 local frame = CreateFrame("Frame")
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_LOGOUT", "PLAYER_GUILD_UPDATE",
-    "GUILD_ROSTER_UPDATE", "CHAT_MSG_ADDON", "PLAYER_LEVEL_UP", "TIME_PLAYED_MSG" }) do frame:RegisterEvent(event) end
+    "GUILD_ROSTER_UPDATE", "GROUP_ROSTER_UPDATE", "CHAT_MSG_ADDON", "PLAYER_LEVEL_UP", "TIME_PLAYED_MSG" }) do frame:RegisterEvent(event) end
 
 frame:SetScript("OnEvent", function(_, event, a, b, ...)
     if event == "PLAYER_LOGIN" then
@@ -326,16 +338,20 @@ frame:SetScript("OnEvent", function(_, event, a, b, ...)
         played = settings.apiPlayed
         RegisterPrefix(PREFIX)
         updateGuild()
+        updateGroupMembers()
         C_Timer.NewTicker(8, sharePosition)
         C_Timer.NewTicker(60, function()
             if guild and settings.shareStats and not playedRequested then requestPlayed() end
             shareStats()
         end)
-        C_Timer.NewTicker(0.25, function() addon.DrawPositions(db.mapPins ~= false) end)
+        C_Timer.NewTicker(0.25, function() addon.DrawPositions(db.mapPins ~= false, groupMembers) end)
         C_Timer.NewTicker(2, redraw)
     elseif not settings then
         return
-    elseif event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+        updateGroupMembers()
+        if event == "PLAYER_ENTERING_WORLD" then updateGuild() end
+    elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
         updateGuild()
     elseif event == "PLAYER_LOGOUT" then
         if sentPosition then send("H") end
