@@ -87,8 +87,8 @@ are shown by first name only. These settings are saved for your account and appl
 
 The leaderboard reads the game's character statistics for quests completed, creatures killed,
 dungeons and raids entered, auctions posted and purchased, and deaths. It also shows the most gold
-your character has ever owned and the last total WoW reports through `/played`. A dash marks values
-the client doesn't provide.
+your character has ever owned. A dash marks values the client doesn't provide. Guildmates with an
+older addon version show only dashes until they update.
 
 The level race records milestones as you reach them with the addon enabled. Each column sorts by
 the play time it took to reach that level. Race results use the same sharing setting as guild stats.

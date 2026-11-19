@@ -8,7 +8,7 @@ local PREFIX = "TCGSTATS1"
 local SendAddon = C_ChatInfo and C_ChatInfo.SendAddonMessage or SendAddonMessage
 local RegisterPrefix = C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix or RegisterAddonMessagePrefix
 local db, player, playerRealm, guild, settings, guildStats
-local played, playedRequested
+local playedRequested
 local sentPosition
 local groupMembers = {}
 local views = {
@@ -16,7 +16,7 @@ local views = {
         { "quests", "Quests", 98 }, { "kills", "Mob kills", 107 }, { "dungeons", "Dungeons", 932 },
         { "raid10", "10p raids", 933 }, { "raid20", "20p raids", 934 }, { "raid40", "40p raids", 64184 },
         { "posted", "Posted", 329 }, { "bought", "Purchases", 330 },
-        { "peakGold", "Peak gold" }, { "played", "Played" },
+        { "peakGold", "Peak gold" },
     },
     deaths = {
         { "deaths", "Total", 60 }, { "dungeonDeaths", "Dungeon", 918 }, { "raid10Deaths", "10p raids", 917 },
@@ -64,7 +64,7 @@ local function readStatistic(id)
 end
 
 local function snapshot()
-    local record = { played = played }
+    local record = {}
     if GetAchievementCriteriaInfo then
         -- The criterion returns copper without the localized money formatting in GetStatistic.
         local ok, _, _, _, copper = pcall(GetAchievementCriteriaInfo, 334, 1, true)
@@ -92,7 +92,7 @@ end
 local function shareStats()
     if not guild then return end
     if settings.shareStats then
-        sendValues("B", snapshot(), fields)
+        sendValues("C", snapshot(), fields)
         if next(settings.race) then sendValues("L", settings.race, raceFields) end
     elseif settings.shareStats == false then
         send("D")
@@ -110,7 +110,7 @@ end
 
 local function receiveStats(sender, message, columns)
     local record, index = {}, 1
-    if not message:match("^[ABL];[%d;%-]+$") or message:find(";;", 1, true) or message:sub(-1) == ";" then return end
+    if not message:match("^[CL];[%d;%-]+$") or message:find(";;", 1, true) or message:sub(-1) == ";" then return end
     for token in message:gmatch(";([^;]+)") do
         local field = columns[index]
         local number = token:match("^%d+$") and tonumber(token)
@@ -121,11 +121,7 @@ local function receiveStats(sender, message, columns)
     end
     if index ~= #columns + 1 then return end
     local row = guildStats[sender] or {}
-    local legacy = message:sub(1, 1) == "A"
-    for _, field in ipairs(columns) do
-        local key = field[1]
-        if not legacy or key ~= "peakGold" then row[key] = record[key] end
-    end
+    for _, field in ipairs(columns) do row[field[1]] = record[field[1]] end
     guildStats[sender] = row
 end
 
@@ -210,14 +206,14 @@ local function redraw()
             row.name:SetPoint("LEFT", 3, 0)
             row.name:SetWidth(120)
             row.name:SetJustifyH("LEFT")
-            for i = 1, #views.stats do row[i] = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") end
+            for i = 1, #views.deaths do row[i] = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") end
             rows[index] = row
         end
         row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(index - 1) * rowHeight)
         row:SetSize(content:GetWidth(), rowHeight)
         row.name:SetText(isForever and entry.name or Ambiguate(entry.name, "none"))
         row.name:SetTextColor(1, entry.record == own and 0.82 or 1, entry.record == own and 0 or 1)
-        for i = 1, #views.stats do
+        for i = 1, #views.deaths do
             local cell, column = row[i], columns[i]
             cell:SetShown(column ~= nil)
             if column then
@@ -225,7 +221,6 @@ local function redraw()
                 local number = entry.record[key]
                 local label = number and tostring(number) or "—"
                 if number and key == "peakGold" then label = ("%.4f"):format(number / 10000)
-                elseif number and key == "played" then label = duration(number)
                 elseif currentView == "race" then
                     local reached = entry.record[column[3]]
                     if reached then label = (number and duration(number) or "—") .. "\n" .. date("%Y-%m-%d", reached) end
@@ -267,7 +262,7 @@ local function show(view)
             button:SetScript("OnClick", function() show(tab[1]) end)
         end
         headers, rows = {}, {}
-        for i = 1, #views.stats do
+        for i = 1, #views.deaths do
             local header = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
             header:SetHeight(22)
             header:SetScript("OnClick", function()
@@ -281,7 +276,6 @@ local function show(view)
     window:Show()
     scroll:SetVerticalScroll(0)
     redraw()
-    if view == "stats" or view == "race" then requestPlayed() end
 end
 
 function addon.GuildMapStatus()
@@ -308,7 +302,6 @@ function addon.GuildCommand(command)
         print("[TCG] Guild map dots " .. (db.mapPins and "on." or "off."))
     elseif command == "share on" or command == "share off" then
         settings.shareStats = command == "share on"
-        if settings.shareStats then requestPlayed() end
         shareStats()
         print("[TCG] Guild stats sharing " .. (settings.shareStats and "on." or "off."))
     else
@@ -335,15 +328,11 @@ frame:SetScript("OnEvent", function(_, event, a, b, ...)
         if settings.shareStats == nil then settings.shareStats = true end
         if settings.sharePosition == nil then settings.sharePosition = true end
         settings.race = settings.race or {}
-        played = settings.apiPlayed
         RegisterPrefix(PREFIX)
         updateGuild()
         updateGroupMembers()
         C_Timer.NewTicker(8, sharePosition)
-        C_Timer.NewTicker(60, function()
-            if guild and settings.shareStats and not playedRequested then requestPlayed() end
-            shareStats()
-        end)
+        C_Timer.NewTicker(60, shareStats)
         C_Timer.NewTicker(0.25, function() addon.DrawPositions(db.mapPins ~= false, groupMembers) end)
         C_Timer.NewTicker(2, redraw)
     elseif not settings then
@@ -365,7 +354,6 @@ frame:SetScript("OnEvent", function(_, event, a, b, ...)
         redraw()
     elseif event == "TIME_PLAYED_MSG" then
         if secret(a) or type(a) ~= "number" then return end
-        played, settings.apiPlayed = a, a
         local level = UnitLevel("player")
         local milestone = not secret(level) and milestones[level]
         if milestone and settings.race[milestone[3]] and settings.race[milestone[1]] == nil
@@ -383,7 +371,13 @@ frame:SetScript("OnEvent", function(_, event, a, b, ...)
         local kind = b:sub(1, 1)
         if kind == "M" or b == "H" then addon.ReceivePosition(sender, b)
         elseif b == "D" then guildStats[sender] = nil
-        elseif kind == "A" or kind == "B" then receiveStats(sender, b, fields)
+        elseif kind == "A" or kind == "B" then
+            -- Old addon version: show nothing for this player until they update.
+            local row = guildStats[sender] or {}
+            for _, field in ipairs(fields) do row[field[1]] = nil end
+            guildStats[sender] = row
+        elseif kind == "C" then receiveStats(sender, b, fields)
         elseif kind == "L" then receiveStats(sender, b, raceFields) end
+        if kind == "A" or kind == "B" or kind == "C" or kind == "L" or b == "D" then redraw() end
     end
 end)

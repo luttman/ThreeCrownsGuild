@@ -113,10 +113,10 @@ GuildFriendsDB = {
 }
 fire("PLAYER_LOGIN")
 timers[8](); timers[60]()
-assert(#packets == 2 and packets[1] == "M;MAGE;1411;50000;50000" and packets[2]:match("^B;"),
+assert(#packets == 2 and packets[1] == "M;MAGE;1411;50000;50000" and packets[2]:match("^C;"),
     "Defaults must share positions and stats")
 assert(addon.GuildMapStatus() == "Map dots on. Position sharing on. Guildmates sharing a recent position: 0.")
-assert(requests == 1)
+assert(requests == 0, "Play time is only requested for level race milestones")
 packets = {}
 addon.GuildCommand("show")
 assert(packets[#packets] == "M;MAGE;1411;50000;50000")
@@ -166,7 +166,7 @@ assert(not dots[mapCanvas].visible and not dots[Minimap].visible, "Old positions
 
 assert(not frame.events.QUEST_TURNED_IN and not frame.events.CHAT_MSG_SAY)
 assert(addon.GuildCommand("stats"))
-assert(requests == 2)
+assert(requests == 0 and not labels["Played"])
 assert(labels["Quests"] and labels["Anna Forever"] and labels["Peak gold"] and labels["98.7654"] and labels["—"])
 assert(labels["1234"] and labels["2456"] and labels["0"] and not labels["Old"] and not labels["99"])
 assert(not labels["Swears"] and labels["Level race"])
@@ -176,28 +176,27 @@ assert(addon.GuildCommand("deaths") and labels["Falling"] and labels["Players"] 
 addon.GuildCommand("share on")
 fire("TIME_PLAYED_MSG", 3603, 3)
 local counters = packets[#packets]
-assert(counters:match("^B;1234;2456;4;7;%-;%-;0;3;987654;3603;10;2;"))
+assert(counters:match("^C;1234;2456;4;7;%-;%-;0;3;987654;10;2;") and not counters:find("3603", 1, true))
 now = now + 60
 timers[60]()
-assert(packets[#packets] == counters, "Shared play time was estimated locally")
+assert(packets[#packets] == counters)
 fire("CHAT_MSG_ADDON", "TCGSTATS1", counters, "GUILD", "Bob-Realm")
 fire("CHAT_MSG_ADDON", "TCGSTATS1", "S;999", "GUILD", "Bob-Realm")
-fire("CHAT_MSG_ADDON", "TCGSTATS1", "A;999", "GUILD", "Bob-Realm")
 local shared = GuildFriendsDB.guildApiStats["Realm#Test Guild"]
-assert(shared["Bob Realm"].quests == 1234 and shared["Bob Realm"].peakGold == 987654 and shared["Bob Realm"].played == 3603)
-local oldCounters = counters:gsub("^B;", "A;"):gsub(";987654;", ";123456;")
+assert(shared["Bob Realm"].quests == 1234 and shared["Bob Realm"].peakGold == 987654)
+-- Old addon versions send A or B packets that include play time: show nothing for them.
+local oldCounters = "B;1234;2456;4;7;-;-;0;3;987654;3603;10;2;0;0;0;0;0;0;0;0"
 fire("CHAT_MSG_ADDON", "TCGSTATS1", oldCounters, "GUILD", "Bob-Realm")
-fire("CHAT_MSG_ADDON", "TCGSTATS1", oldCounters, "GUILD", "Carl-Forever")
-assert(shared["Bob Realm"].peakGold == 987654 and shared["Carl Forever"].peakGold == nil)
-assert(shared["Carl Forever"].quests == 1234)
-assert(shared["Bob Realm"].posted == 0 and shared["Bob Realm"].raid20 == nil)
+fire("CHAT_MSG_ADDON", "TCGSTATS1", oldCounters:gsub("^B;", "A;"), "GUILD", "Carl-Forever")
+assert(shared["Bob Realm"].quests == nil and shared["Bob Realm"].peakGold == nil)
+assert(shared["Carl Forever"] and shared["Carl Forever"].quests == nil)
 fire("CHAT_MSG_ADDON", "TCGSTATS1", counters, "GUILD", "Anna Forever-Forever")
 fire("CHAT_MSG_ADDON", "TCGSTATS1", counters, "GUILD", "Anna-Forever")
 assert(not shared["Anna Forever"] and not shared["Anna Forever-Forever"] and not shared["Anna-Forever"])
 fire("CHAT_MSG_ADDON", "TCGSTATS1", counters, "GUILD", "Anna Andersson-Forever")
 assert(shared["Anna Andersson"].quests == 1234, "Two characters with the same first name were merged")
 assert(addon.GuildCommand("stats"))
-assert(labels["Bob Realm"] and labels["Anna Andersson"] and labels["1h 00m"])
+assert(labels["Bob Realm"] and labels["Anna Andersson"])
 
 assert(addon.GuildCommand("race"))
 local requestsBefore = requests
