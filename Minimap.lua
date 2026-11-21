@@ -3,6 +3,7 @@
 -- ponytail: the button follows a round minimap. A square minimap needs a different formula.
 local _, addon = ...
 
+local LOGO = "Interface\\AddOns\\ThreeCrownsGuild\\Media\\Logo" -- Media/Logo.tga, the project logo
 local atan2 = math.atan2 or math.atan
 local minimapButton
 
@@ -40,10 +41,9 @@ local function Create()
     disc:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
     disc:SetPoint("TOPLEFT", 7, -5)
     local icon = button:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(17, 17)
-    icon:SetTexture("Interface\\Icons\\INV_Misc_GroupNeedMore")
-    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
-    icon:SetPoint("TOPLEFT", 7, -6)
+    icon:SetSize(20, 20)
+    icon:SetTexture(LOGO)
+    icon:SetPoint("TOPLEFT", 6, -5)
     button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
     button:SetScript("OnClick", function(_, mouse)
         if mouse == "RightButton" then addon.OpenSettings() else addon.Toggle() end

@@ -2,6 +2,7 @@
 ## Title: ThreeCrownsGuild
 ## Notes: Online roster and shared chat (/tcg) across several guilds on one realm.
 ## Author: luttm
+## IconTexture: Interface\AddOns\ThreeCrownsGuild\Media\Logo
 ## Version: @project-version@
 ## SavedVariables: GuildFriendsDB
 

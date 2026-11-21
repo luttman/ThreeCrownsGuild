@@ -821,7 +821,7 @@ local function attach(frame, host, oldTab)
     hooked[frame] = true
     local b = CreateFrame("Button", nil, frame)
     b:SetSize(22, 22)
-    b:SetNormalTexture("Interface\\Icons\\INV_Misc_GroupNeedMore")
+    b:SetNormalTexture("Interface\\AddOns\\ThreeCrownsGuild\\Media\\Logo")
     b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     if oldTab then
         b:SetPoint("TOPLEFT", host, "TOPLEFT", 62, -26)
