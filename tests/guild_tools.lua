@@ -67,18 +67,9 @@ Minimap = { IsShown = function() return true end, GetWidth = function() return 2
 UIParent = { GetWidth = function() return 1200 end }
 UISpecialFrames = {}
 local labels, buttons = {}, {}
-local function widget(name)
-    return setmetatable({
-        GetName = function() return name end,
-        SetWidth = function(self, width) self.width = width end,
-        GetWidth = function(self) return self.width end,
-        GetHeight = function() return 300 end,
-        IsShown = function() return true end,
-        CreateFontString = function() return widget() end,
-        SetText = function(self, label) labels[label] = true; self.label = label end,
-        SetScript = function(self, _, callback) self.click = callback end,
-    }, { __index = function() return function() end end })
-end
+local fake = dofile("tests/fake.lua").new({ onText = function(label) labels[label] = true end })
+ChatFontNormal = { GetFont = function() return "font.ttf" end }
+InCombatLockdown = function() return false end
 CreateFrame = function(kind, name, parent)
     if not parent then
         frame = { events = {}, RegisterEvent = function(self, event) self.events[event] = true end,
@@ -86,8 +77,7 @@ CreateFrame = function(kind, name, parent)
         return frame
     end
     if parent ~= mapCanvas and parent ~= Minimap then
-        local ui = widget(name)
-        ui.TitleText = widget()
+        local ui = fake.CreateFrame(kind, name, parent)
         if kind == "Button" then buttons[#buttons + 1] = ui end
         return ui
     end
@@ -105,12 +95,18 @@ CreateFrame = function(kind, name, parent)
 end
 
 assert(loadfile("GuildMap.lua"))("ThreeCrownsGuild", addon)
+assert(loadfile("Skin.lua"))("ThreeCrownsGuild", addon)
 assert(loadfile("GuildStats.lua"))("ThreeCrownsGuild", addon)
 GuildFriendsDB = {
     characterStats = { ["Anna-Forever"] = { quests = 99, played = 9999, words = 2 } },
     guildStats = { ["Realm#Test Guild"] = { ["Old-Realm"] = { quests = 99 } } },
     guildApiStats = { ["Realm#Test Guild"] = { ["Anna Forever-Forever"] = { quests = 99 } } },
 }
+addon.db = GuildFriendsDB
+addon.db.positions = {}
+-- the stats page lives in the main window; here it is a bare page, and OpenWindow only switches the view
+addon.BuildStats(fake.CreateFrame("Frame", "StatsPage", UIParent), 900)
+addon.OpenWindow = function(view) addon.ShowStats(view) end
 fire("PLAYER_LOGIN")
 timers[8](); timers[60]()
 assert(#packets == 2 and packets[1] == "M;MAGE;1411;50000;50000" and packets[2]:match("^C;"),
@@ -169,8 +165,8 @@ assert(addon.GuildCommand("stats"))
 assert(requests == 0 and not labels["Played"])
 assert(labels["Quests"] and labels["Anna Forever"] and labels["Peak gold"] and labels["98.7654"] and labels["—"])
 assert(labels["1234"] and labels["2456"] and labels["0"] and not labels["Old"] and not labels["99"])
-assert(not labels["Swears"] and labels["Level race"])
-buttons[4].click()
+assert(not labels["Swears"])
+buttons[4].scripts.OnClick(buttons[4]) -- sort by another column
 assert(addon.GuildCommand("deaths") and labels["Falling"] and labels["Players"] and not labels["Unknown"])
 
 addon.GuildCommand("share on")
@@ -197,6 +193,11 @@ fire("CHAT_MSG_ADDON", "TCGSTATS1", counters, "GUILD", "Anna Andersson-Forever")
 assert(shared["Anna Andersson"].quests == 1234, "Two characters with the same first name were merged")
 assert(addon.GuildCommand("stats"))
 assert(labels["Bob Realm"] and labels["Anna Andersson"])
+assert(addon.GuildCommand("race") and labels["60"], "the level race view did not draw its columns")
+assert(addon.GetGuildSetting("shareStats") == true and addon.GetGuildSetting("mapPins") == true)
+addon.SetGuildSetting("shareStats", false)
+assert(addon.GetGuildSetting("shareStats") == false)
+addon.SetGuildSetting("shareStats", true)
 
 assert(addon.GuildCommand("race"))
 local requestsBefore = requests

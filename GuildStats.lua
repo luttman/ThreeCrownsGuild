@@ -169,13 +169,52 @@ local function duration(seconds)
     return ("%dh %02dm"):format(math.floor(seconds / 3600), math.floor(seconds / 60) % 60)
 end
 
-local window, scroll, content, headers, rows
+local page, headers, lists, windowWidth -- page = the stats page of the main window (BuildStats)
 local currentView, sortKey, reversed
+
+-- A row is the player's name and one cell per column of the current view.
+local function fillRow(row, entry)
+    local skin = addon.Skin
+    local columns = views[currentView]
+    local width = (windowWidth - 154) / #columns
+    row.text:SetText(isForever and entry.name or Ambiguate(entry.name, "none"))
+    skin.TextColor(row.text, entry.own and skin.colors.gold or skin.colors.text)
+    for i = 1, #views.deaths do
+        local cell, column = row[i], columns[i]
+        cell:SetShown(column ~= nil)
+        if column then
+            local key = column[1]
+            local number = entry.record[key]
+            local label = number and tostring(number) or "—"
+            if number and key == "peakGold" then label = ("%.4f"):format(number / 10000)
+            elseif currentView == "race" then
+                local reached = entry.record[column[3]]
+                if reached then label = (number and duration(number) or "—") .. "\n" .. date("%Y-%m-%d", reached) end
+            end
+            cell:ClearAllPoints()
+            cell:SetPoint("LEFT", row, "LEFT", 126 + (i - 1) * width, 0)
+            cell:SetWidth(width)
+            cell:SetText(label)
+        end
+    end
+end
+
+local function createRow(row)
+    local skin = addon.Skin
+    row.value:ClearAllPoints() -- the name ends where the first value column starts
+    row.value:SetPoint("LEFT", 126, 0)
+    row.value:SetWidth(1)
+    for i = 1, #views.deaths do
+        row[i] = skin.Label(row, "GameFontHighlightSmall", skin.colors.text)
+        row[i]:SetJustifyH("LEFT")
+    end
+end
+
 local function redraw()
-    if not window or not window:IsShown() then return end
+    if not page or not currentView or not page:IsVisible() then return end
     local columns = views[currentView]
     local own = currentView == "race" and settings.race or snapshot()
-    local list = { { name = player, record = own } }
+    local list = { { name = player, record = own, own = true } }
     for name, record in pairs(guildStats or {}) do
         if name ~= player then list[#list + 1] = { name = name, record = record } end
     end
@@ -186,96 +225,63 @@ local function redraw()
         if reversed then return av < bv end
         return av > bv
     end)
-    local columnWidth = (content:GetWidth() - 126) / #columns
+    local width = (windowWidth - 154) / #columns
     for i, header in ipairs(headers) do
         local column = columns[i]
         header:SetShown(column ~= nil)
         if column then
-            header:SetPoint("TOPLEFT", window, "TOPLEFT", 140 + (i - 1) * columnWidth, -56)
-            header:SetWidth(columnWidth)
-            header:SetText(column[2])
+            header:ClearAllPoints()
+            header:SetPoint("TOPLEFT", page, "TOPLEFT", 126 + (i - 1) * width, 0)
+            header:SetWidth(width)
+            header.label:SetText(column[2])
         end
     end
-    local rowHeight = currentView == "race" and 38 or 23
-    content:SetHeight(math.max(scroll:GetHeight(), #list * rowHeight))
-    for index, entry in ipairs(list) do
-        local row = rows[index]
-        if not row then
-            row = CreateFrame("Frame", nil, content)
-            row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            row.name:SetPoint("LEFT", 3, 0)
-            row.name:SetWidth(120)
-            row.name:SetJustifyH("LEFT")
-            for i = 1, #views.deaths do row[i] = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") end
-            rows[index] = row
-        end
-        row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(index - 1) * rowHeight)
-        row:SetSize(content:GetWidth(), rowHeight)
-        row.name:SetText(isForever and entry.name or Ambiguate(entry.name, "none"))
-        row.name:SetTextColor(1, entry.record == own and 0.82 or 1, entry.record == own and 0 or 1)
-        for i = 1, #views.deaths do
-            local cell, column = row[i], columns[i]
-            cell:SetShown(column ~= nil)
-            if column then
-                local key = column[1]
-                local number = entry.record[key]
-                local label = number and tostring(number) or "—"
-                if number and key == "peakGold" then label = ("%.4f"):format(number / 10000)
-                elseif currentView == "race" then
-                    local reached = entry.record[column[3]]
-                    if reached then label = (number and duration(number) or "—") .. "\n" .. date("%Y-%m-%d", reached) end
-                end
-                cell:SetPoint("LEFT", row, "LEFT", 126 + (i - 1) * columnWidth, 0)
-                cell:SetWidth(columnWidth)
-                cell:SetText(label)
-            end
-        end
-        row:Show()
-    end
-    for i = #list + 1, #rows do rows[i]:Hide() end
+    local race = currentView == "race"
+    lists.race:SetShown(race)
+    lists.stats:SetShown(not race)
+    local active = race and lists.race or lists.stats
+    active:SetEntries(list)
 end
 
-local function show(view)
-    currentView, sortKey, reversed = view, views[view][1][1], view == "race"
-    if not window then
-        window = CreateFrame("Frame", "ThreeCrownsGuildStats", UIParent, "BasicFrameTemplateWithInset")
-        local width = math.min(900, UIParent:GetWidth() - 40)
-        window:SetSize(width, 410)
-        window:SetPoint("CENTER")
-        window:SetFrameStrata("DIALOG")
-        if window.TitleText then window.TitleText:SetText("ThreeCrownsGuild — Guild stats") end
-        UISpecialFrames[#UISpecialFrames + 1] = window:GetName()
-        scroll = CreateFrame("ScrollFrame", nil, window, "UIPanelScrollFrameTemplate")
-        scroll:SetPoint("TOPLEFT", 14, -81)
-        scroll:SetPoint("BOTTOMRIGHT", -34, 28)
-        content = CreateFrame("Frame", nil, scroll)
-        content:SetWidth(width - 48)
-        scroll:SetScrollChild(content)
-        local note = window:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        note:SetPoint("BOTTOMLEFT", 14, 10)
-        note:SetText("Use /tc share on or off to control guild stats and level race sharing.")
-        for i, tab in ipairs({ { "stats", "Stats" }, { "deaths", "Deaths" }, { "race", "Level race" } }) do
-            local button = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
-            button:SetSize(100, 22)
-            button:SetPoint("TOPLEFT", 14 + (i - 1) * 104, -29)
-            button:SetText(tab[2])
-            button:SetScript("OnClick", function() show(tab[1]) end)
-        end
-        headers, rows = {}, {}
-        for i = 1, #views.deaths do
-            local header = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
-            header:SetHeight(22)
-            header:SetScript("OnClick", function()
-                local key = views[currentView][i][1]
-                if sortKey == key then reversed = not reversed else sortKey, reversed = key, currentView == "race" end
-                redraw()
-            end)
-            headers[i] = header
-        end
+-- Builds the stats table inside `parent`, a page of the main window. width is the window's width.
+function addon.BuildStats(parent, width)
+    local skin = addon.Skin
+    page, windowWidth = parent, width
+    local note = skin.Label(page, "GameFontNormalSmall", skin.colors.muted)
+    note:SetPoint("BOTTOMLEFT", 0, 0)
+    note:SetText("Use the settings tab to control guild stats and level race sharing.")
+    lists = {}
+    for key, height in pairs({ stats = 23, race = 38 }) do
+        lists[key] = skin.List(page, height, fillRow, createRow)
+        lists[key]:SetPoint("TOPLEFT", 0, -23)
+        lists[key]:SetPoint("BOTTOMRIGHT", 0, 20)
     end
-    window:Show()
-    scroll:SetVerticalScroll(0)
+    headers = {}
+    for i = 1, #views.deaths do
+        headers[i] = skin.Button(page, "", 80, function()
+            local key = views[currentView][i][1]
+            if sortKey == key then reversed = not reversed else sortKey, reversed = key, currentView == "race" end
+            redraw()
+        end)
+    end
+end
+
+function addon.ShowStats(view) -- view: "stats", "deaths" or "race"
+    currentView, sortKey, reversed = view, views[view][1][1], view == "race"
     redraw()
+end
+
+-- The settings page reads and writes these three through the same commands as /tc.
+function addon.GetGuildSetting(key)
+    if not settings then return false end
+    if key == "mapPins" then return db.mapPins ~= false end
+    return settings[key] == true
+end
+
+function addon.SetGuildSetting(key, value)
+    local commands = { sharePosition = value and "show" or "hide", shareStats = value and "share on" or "share off",
+        mapPins = value and "pins on" or "pins off" }
+    addon.GuildCommand(commands[key])
 end
 
 function addon.GuildMapStatus()
@@ -287,7 +293,7 @@ end
 function addon.GuildCommand(command)
     if not settings then return false end
     if command == "" or views[command] then
-        show(command == "" and "stats" or command)
+        addon.OpenWindow(command == "" and "stats" or command)
     elseif command == "hide" or command == "show" then
         settings.sharePosition = command == "show"
         if command == "hide" then

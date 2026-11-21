@@ -53,6 +53,7 @@ local peers, rx = {}, {}
 local GREEN, HISTORY_MAX, JOIN_DELAY, PFX = "|cff40ff40", 200, 15, "GF1"
 local function myTag() return "G1" end
 local function render(rec) return rec.msg end
+local function echo(text) DEFAULT_CHAT_FRAME:AddMessage(text) end
 local function secret(value) return value == secretValue end
 local function chatName(sender) return Ambiguate(sender, "none") end
 local function ownChatName() return UnitName("player") end

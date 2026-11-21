@@ -5,6 +5,9 @@
 ## Version: @project-version@
 ## SavedVariables: GuildFriendsDB
 
+Skin.lua
+Settings.lua
+Minimap.lua
 GuildMap.lua
 GuildStats.lua
 ThreeCrownsGuild.lua

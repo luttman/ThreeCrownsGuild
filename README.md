@@ -57,6 +57,8 @@ addon window. They are not forwarded into the server's guild chat.
 | `/tcg text` | Send a message to all connected guilds (displayed as `[TAG] Name: text`) |
 | `/tcg tag on\|off` | Show or hide guild tags in chat |
 | `/tcg echo on\|off` | Show or hide shared chat in the regular chat window |
+| `/tcg settings` | Open the settings tab |
+| `/tcg window` | List your chat windows. `/tcg window <number>` prints shared chat there, `/tcg window default` goes back |
 | `/tcg surname on\|off` | Show or hide surnames (shown by default) |
 
 The addon window shows all online members of your own guild. For other guilds, it shows players
@@ -68,14 +70,29 @@ Right-click a player and select **Set nickname** to assign a local nickname. It 
 are enabled. Clear the nickname to remove it. With `/tcg surname off`, players without a nickname
 are shown by first name only. These settings are saved for your account and apply only to the addon.
 
+## One window
+
+The addon window has five tabs: **Chat** (with the member list), **Stats**, **Deaths**, **Level race**,
+and **Settings**. Open it with `/tcg`, with the minimap button, or from the guild window. Left-click
+the minimap button to open or close the window, right-click it to open the settings, and drag it to
+move it around the minimap.
+
+The settings tab holds every setting: the skin (Flat, EllesmereUI, or Blizzard; a change needs `/reload`),
+guild sync, guild tags, surnames, chat echo, LFM notices, position and stats sharing, map dots, and the
+minimap button. It also lists your chat windows, so you can print shared chat and LFM notices in a window
+you already have. Tick **Also print it in the default chat window** to use both.
+
 ## Guild tools
+
+Every `/tc` command also works with `/tcg`, except `hide` and `show`, so that a chat message can't change
+position sharing. `/tcg stats` opens the stats tab, for example.
 
 | Command | Action |
 |---|---|
 | `/tc help` | Show guild tool commands |
-| `/tc` or `/tc stats` | Open the guild leaderboard. Click a column heading to sort. |
-| `/tc deaths` | Show the death breakdown by location and cause |
-| `/tc race` | Compare when players reached levels 10, 20, 30, 40, 50, and 60 and how much play time it took |
+| `/tc` or `/tc stats` | Open the stats tab. Click a column heading to sort. |
+| `/tc deaths` | Open the deaths tab: the death breakdown by location and cause |
+| `/tc race` | Open the level race tab to compare when players reached levels 10, 20, 30, 40, 50, and 60 and how much play time it took |
 | `/tc share on\|off` | Start or stop sharing your character's stats with your guild |
 | `/tc show` or `/tc hide` | Start or stop sharing your outdoor position with your guild |
 | `/tc pins on\|off` | Show or hide class-colored guild dots on your world map and minimap |

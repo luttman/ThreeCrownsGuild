@@ -12,7 +12,7 @@ local _, addon = ...
 -- Chat travels through the hidden channel. Idle presence uses addon whispers.
 -- Message: <kind>#<tag>#<body>
 --   C chat (CLASS;text) | P presence (level;CLASS;zone) | Q "who is online?" | X logout
-local PFX, HEARTBEAT, EXPIRE, JOIN_DELAY, HISTORY_MAX, ROW_H = "GF1", 240, 600, 15, 200, 16
+local PFX, HEARTBEAT, EXPIRE, JOIN_DELAY, HISTORY_MAX = "GF1", 240, 600, 15, 200
 local ENCODED_CHUNK = 248 -- leaves room for the marker and splits Base64 on a four-byte boundary
 local GREEN = "|cff40ff40"
 
@@ -27,7 +27,7 @@ local RegisterPrefix = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or
 local joinAt, lastAnnounce, lastQuery = 0, 0, 0
 local warmup, lastResult, rx = 3, "-", {} -- warmup: a few quick announces after joining (first ones can be dropped)
 local stats = { sent = 0, recv = 0, noConfig = 0, channelEcho = 0 } -- shown by /tc status
-local f, chat, pool, content -- UI, created on first open
+local f, chat -- UI, created on first open
 
 local function parseConfig(text)
     local c = { guilds = {}, byName = {} }
@@ -218,7 +218,7 @@ end
 
 -- ---------------------------------------------------------------- roster
 
-local f, chat, pool, content, dock -- UI (created on first open); dock = guild window we sit next to
+local f, chat, dock -- UI (created on first open); dock = guild window we sit next to
 local collapsed = {} -- guild tags whose list is folded
 
 local function ownGuildOnline()
@@ -284,10 +284,15 @@ local function rowMenu(who)
     if not menu then
         local catcher = CreateFrame("Button", nil, UIParent) -- click anywhere else closes the menu
         catcher:SetAllPoints(); catcher:SetFrameStrata("FULLSCREEN_DIALOG"); catcher:Hide()
+        local skin = addon.Skin
+        skin.Apply()
         menu = CreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG"); menu:SetFrameLevel(catcher:GetFrameLevel() + 5)
-        menu:SetSize(130, 8 + 4 * 18); menu:Hide()
-        menu.bg = menu:CreateTexture(nil, "BACKGROUND"); menu.bg:SetAllPoints(); menu.bg:SetColorTexture(0, 0, 0, 0.92)
+        menu:SetSize(130, 8 + 4 * 22); menu:Hide()
+        skin.Surface(menu, "BACKGROUND", skin.colors.border)
+        local inner = menu:CreateTexture(nil, "BORDER")
+        inner:SetPoint("TOPLEFT", 1, -1); inner:SetPoint("BOTTOMRIGHT", -1, 1)
+        skin.Fill(inner, skin.colors.background)
         catcher:SetScript("OnClick", function() menu:Hide() end)
         menu:SetScript("OnShow", function() catcher:Show() end)
         menu:SetScript("OnHide", function() catcher:Hide() end)
@@ -298,12 +303,8 @@ local function rowMenu(who)
             { "Set nickname", function(w) StaticPopup_Show("THREECROWNSGUILD_NICK", w, nil, w) end },
         }
         for i, act in ipairs(actions) do
-            local b = CreateFrame("Button", nil, menu)
-            b:SetSize(122, 18); b:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 18)
-            b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-            b.text = b:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-            b.text:SetPoint("LEFT", 4, 0); b.text:SetText(act[1])
-            b:SetScript("OnClick", function() menu:Hide(); act[2](menu.who) end)
+            local b = skin.Button(menu, act[1], 122, function() menu:Hide(); act[2](menu.who) end)
+            b:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 22)
         end
     end
     menu.who = who
@@ -314,65 +315,77 @@ local function rowMenu(who)
     menu:Show()
 end
 
-local function getRow(i)
-    local r = pool[i]
-    if r then return r end
-    r = CreateFrame("Button", nil, content)
-    r:SetSize(148, ROW_H)
-    r:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_H)
-    r:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-    r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    r.sep = r:CreateTexture(nil, "ARTWORK")
-    r.sep:SetColorTexture(1, 1, 1, 0.25); r.sep:SetHeight(1)
-    r.sep:SetPoint("TOPLEFT", 0, 0); r.sep:SetPoint("TOPRIGHT", 0, 0)
-    r.name = r:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    r.name:SetPoint("LEFT", 4, 0); r.name:SetWidth(104); r.name:SetJustifyH("LEFT"); r.name:SetWordWrap(false)
-    r.lvl = r:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    r.lvl:SetPoint("RIGHT", -4, 0); r.lvl:SetWidth(34); r.lvl:SetJustifyH("RIGHT")
-    r:SetScript("OnClick", function(self, button)
-        if self.tag then -- guild header: fold / unfold
-            collapsed[self.tag] = not collapsed[self.tag]
+-- One row of the roster list: a guild header (tag + online count) or a player (name + level).
+local function fillRow(row, entry)
+    local skin = addon.Skin
+    if entry.tag then
+        row.text:SetText(("%s (%d online)"):format(entry.tag, entry.online))
+        skin.TextColor(row.text, skin.colors.gold)
+        row.value:SetText("")
+    else
+        row.text:SetText(classColor(entry.class) .. nick(entry.who))
+        skin.TextColor(row.text, skin.colors.text)
+        row.value:SetText(entry.level > 0 and entry.level or "")
+    end
+end
+
+local function createRow(row)
+    row:SetScript("OnClick", function(self, button)
+        local entry = self.entry
+        if entry.tag then -- guild header: fold / unfold
+            collapsed[entry.tag] = not collapsed[entry.tag]
             ThreeCrownsGuild_Refresh()
         elseif button == "RightButton" then
-            rowMenu(self.who)
+            rowMenu(entry.who)
         else
-            SetItemRef("player:" .. self.who, "|Hplayer:" .. self.who .. "|h[" .. self.who .. "]|h", "LeftButton")
+            SetItemRef("player:" .. entry.who, "|Hplayer:" .. entry.who .. "|h[" .. entry.who .. "]|h", "LeftButton")
         end
     end)
-    pool[i] = r
-    return r
 end
 
 function ThreeCrownsGuild_Refresh()
     if not (f and f:IsShown()) then return end
     f.note:SetShown(not cfg.channel)
-    local n = 0
-    for i, g in ipairs(cfg.guilds) do
+    local entries = {}
+    for _, g in ipairs(cfg.guilds) do
         local list = membersOf(g.tag)
-        n = n + 1
-        local r = getRow(n)
-        r.tag, r.who = g.tag, nil
-        r.sep:SetShown(i > 1)
-        r.name:SetText(("|cffffd100%s|r (%d online)"):format(g.tag, #list))
-        r.lvl:SetText("")
-        r:Show()
+        entries[#entries + 1] = { tag = g.tag, online = #list }
         if not collapsed[g.tag] then
             for _, m in ipairs(list) do
-                n = n + 1
-                r = getRow(n)
-                r.tag, r.who = nil, m.name
-                r.sep:Hide()
-                r.name:SetText(classColor(m.class) .. nick(m.name))
-                r.lvl:SetText(m.level > 0 and m.level or "")
-                r:Show()
+                entries[#entries + 1] = { who = m.name, class = m.class, level = m.level }
             end
         end
     end
-    for i = n + 1, #pool do pool[i]:Hide() end
-    content:SetHeight(math.max(1, n * ROW_H))
+    f.list:SetEntries(entries)
+end
+
+function addon.RefreshWindow() -- the skin and the settings call this
+    ThreeCrownsGuild_Refresh()
+    refreshChat()
 end
 
 -- ---------------------------------------------------------------- chat
+
+-- Where echoed chat and LFM notices are printed: one of the player's own chat windows, saved by
+-- number so renaming the tab changes nothing. Closed or missing window = the default chat frame.
+-- "alsoDefault" prints in the default chat frame (General) as well.
+local function chatWindowName(i)
+    local name, _, _, _, _, _, shown, _, docked = GetChatWindowInfo(i)
+    if name and name ~= "" and (shown or docked) then return name end
+end
+
+local function echo(text)
+    local i = db.chatWindow
+    local frame = i and chatWindowName(i) and _G["ChatFrame" .. i]
+    if frame then frame:AddMessage(text) end
+    if (not frame or db.alsoDefault) and frame ~= DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(text) end
+end
+
+local function setChatWindow(i) -- nil = default chat frame
+    db.chatWindow = i
+    if addon and addon.RefreshSettings then addon.RefreshSettings() end
+end
+if addon then addon.ChatWindowName, addon.SetChatWindow = chatWindowName, setChatWindow end
 
 local function render(rec)
     return ("%s%s|Hplayer:%s|h%s%s%s|h: %s"):format(
@@ -391,7 +404,7 @@ local function addChat(tag, name, class, msg, guildMessage)
     tinsert(db.history, rec)
     while #db.history > HISTORY_MAX do tremove(db.history, 1) end
     if chat then chat:AddMessage(render(rec)); ThreeCrownsGuild_SyncBar() end
-    if db.echo and not (guildMessage and tag == myTag()) then DEFAULT_CHAT_FRAME:AddMessage(render(rec)) end
+    if db.echo and not (guildMessage and tag == myTag()) then echo(render(rec)) end
 end
 
 local function sendChat(msg)
@@ -453,6 +466,20 @@ local function needsText(tank, healer, dps)
     return table.concat(parts, " + ")
 end
 
+-- The skin has no text field, so this one is drawn with its colors (a border and a panel fill).
+local function editBox(parent, width)
+    local skin = addon.Skin
+    local box = CreateFrame("EditBox", nil, parent)
+    box:SetFrameLevel(parent:GetFrameLevel() + 3) -- above the window's drag strip
+    box:SetSize(width, 22); box:SetAutoFocus(false); box:SetFontObject(ChatFontNormal); box:SetTextInsets(6, 6, 0, 0)
+    local edge = box:CreateTexture(nil, "BACKGROUND")
+    edge:SetAllPoints(); skin.Fill(edge, skin.colors.border)
+    local inner = box:CreateTexture(nil, "BORDER")
+    inner:SetPoint("TOPLEFT", 1, -1); inner:SetPoint("BOTTOMRIGHT", -1, 1); skin.Fill(inner, skin.colors.panel)
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    return box
+end
+
 local function showToast(text)
     if not toast then
         toast = CreateFrame("Frame", nil, UIParent)
@@ -474,7 +501,7 @@ local function announceLFM(tag, name, tank, healer, dps, dungeon, names)
     local needs = needsText(tank, healer, dps)
     showToast(("|cffaaaaaa[%s]|r |cff40ff40%s|r %s looking for |cffffd100%s|r\n%s"):format(
         tag, who, who:find(",") and "are" or "is", needs, dungeon))
-    DEFAULT_CHAT_FRAME:AddMessage(("%s[LFM] [%s] |Hplayer:%s|h[%s]|h: %s for %s (%s)"):format(
+    echo(("%s[LFM] [%s] |Hplayer:%s|h[%s]|h: %s for %s (%s)"):format(
         GREEN, tag, name, name, needs, dungeon, who))
     pcall(PlaySound, SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959)
 end
@@ -498,39 +525,32 @@ end
 
 local function openLFM()
     if not lfmDialog then
-        local d = CreateFrame("Frame", "ThreeCrownsGuildLFM", UIParent, "BasicFrameTemplateWithInset")
+        local skin = addon.Skin
+        local d = skin.Window("ThreeCrownsGuildLFM", 290, 190, "Looking for more", "DIALOG")
         lfmDialog = d
-        d:SetSize(290, 170); d:SetPoint("CENTER", 0, 80); d:SetFrameStrata("DIALOG")
-        d:SetMovable(true); d:EnableMouse(true); d:SetClampedToScreen(true)
-        d:RegisterForDrag("LeftButton")
-        d:SetScript("OnDragStart", d.StartMoving); d:SetScript("OnDragStop", d.StopMovingOrSizing)
-        if d.TitleText then d.TitleText:SetText("Looking for more") end
-        tinsert(UISpecialFrames, "ThreeCrownsGuildLFM")
+        local top = d.top
 
-        local label = d:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        label:SetPoint("TOPLEFT", 16, -34); label:SetText("Dungeon")
-        d.dungeon = CreateFrame("EditBox", nil, d, "InputBoxTemplate")
-        d.dungeon:SetPoint("TOPLEFT", 22, -50); d.dungeon:SetSize(246, 24)
-        d.dungeon:SetAutoFocus(false); d.dungeon:SetMaxBytes(60)
-        d.dungeon:SetScript("OnEscapePressed", function(e) e:ClearFocus() end)
+        local label = skin.Label(d, "GameFontHighlight", skin.colors.text)
+        label:SetPoint("TOPLEFT", 18, -40 - top); label:SetText("Dungeon")
+        d.dungeon = editBox(d, 254)
+        d.dungeon:SetPoint("TOPLEFT", 18, -60 - top); d.dungeon:SetMaxBytes(60)
 
         -- click a role to cycle how many of it you still need
         local function need(name, max, x)
-            local b = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
-            b:SetSize(82, 24); b:SetPoint("TOPLEFT", x, -86)
-            function b:Set(n) self.n = n; self:SetText(("%s: %d"):format(name, n)) end
-            b:SetScript("OnClick", function(self) self:Set((self.n + 1) % (max + 1)) end)
+            local b
+            b = skin.Button(d, name, 82, function() b:Set((b.n + 1) % (max + 1)) end)
+            b:SetPoint("TOPLEFT", x, -94 - top)
+            function b:Set(n) self.n = n; self.label:SetText(("%s: %d"):format(name, n)) end
             return b
         end
-        d.tank, d.healer, d.dps = need("Tank", 1, 16), need("Healer", 1, 102), need("DPS", 3, 188)
+        d.tank, d.healer, d.dps = need("Tank", 1, 18), need("Healer", 1, 104), need("DPS", 3, 190)
 
-        local sendButton = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
-        sendButton:SetSize(180, 26); sendButton:SetPoint("BOTTOM", 0, 14); sendButton:SetText("Send to all guilds")
-        sendButton:SetScript("OnClick", function()
+        local sendButton = skin.Button(d, "Send to all guilds", 180, function()
             local ok = false
             chatInput(function() ok = sendLFM(d.dungeon:GetText(), d.tank.n, d.healer.n, d.dps.n) end)
             if ok then d:Hide() end
         end)
+        sendButton:SetPoint("BOTTOM", 0, 12)
     end
     local tank, healer, dps = missingRoles()
     lfmDialog.tank:Set(tank); lfmDialog.healer:Set(healer); lfmDialog.dps:Set(dps)
@@ -674,46 +694,82 @@ local function place()
     else
         dock = nil
         f:SetHeight(440)
-        f:SetPoint("CENTER")
+        local saved = addon.db.positions[f:GetName()]
+        if saved then f:SetPoint(saved.point, UIParent, saved.relative, saved.x, saved.y) else f:SetPoint("CENTER") end
     end
 end
 
-local function inset(parent) -- dark framed panel, like the Communities window's
-    local ok, p = pcall(CreateFrame, "Frame", nil, parent, "BackdropTemplate")
-    if not ok then p = CreateFrame("Frame", nil, parent) end
-    if p.SetBackdrop then
-        p:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 14, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-        p:SetBackdropColor(0, 0, 0, 0.55); p:SetBackdropBorderColor(0.7, 0.7, 0.7, 1)
+-- One window, five tabs over three pages: chat (with the roster), stats (stats, deaths, level race), settings.
+local PAGE_OF = { chat = "chat", stats = "stats", deaths = "stats", race = "stats", settings = "settings" }
+local selectTab
+
+local function selectPage(key)
+    key = PAGE_OF[key] and key or "chat"
+    f.key = key
+    for name, page in pairs(f.pages) do page:SetShown(name == PAGE_OF[key]) end
+    if PAGE_OF[key] == "stats" then
+        addon.ShowStats(key)
+    elseif key == "settings" then
+        addon.RefreshSettings()
+    else
+        ThreeCrownsGuild_Refresh(); refreshChat()
     end
-    return p
+    selectTab(key, true)
 end
 
 local function createUI()
-    f = CreateFrame("Frame", "ThreeCrownsGuildFrame", UIParent, "BasicFrameTemplateWithInset")
-    f:SetSize(560, 440)
-    f:SetMovable(true); f:EnableMouse(true); f:SetClampedToScreen(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(self) dock = nil; self:StartMoving() end)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    if f.TitleText then f.TitleText:SetText("ThreeCrownsGuild") end
-    tinsert(UISpecialFrames, "ThreeCrownsGuildFrame")
+    local skin = addon.Skin
+    local colors = skin.colors
+    local width = 760
+    f = skin.Window("ThreeCrownsGuildFrame", width, 440, "ThreeCrownsGuild", "HIGH")
+    local top = f.top
+    -- a drag takes the window off the guild window it sat next to
+    for _, region in ipairs({ f, f.drag }) do region:HookScript("OnDragStart", function() dock = nil end) end
 
-    local lfmButton = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    lfmButton:SetSize(54, 20); lfmButton:SetPoint("TOPLEFT", 8, -4); lfmButton:SetText("LFM")
-    lfmButton:SetScript("OnClick", openLFM)
+    local lfmButton = skin.Button(f, "LFM", 54, openLFM)
+    if f.blizzard then
+        lfmButton:SetPoint("TOPRIGHT", -10, -7 - top)
+    else
+        lfmButton:SetPoint("RIGHT", f.close, "LEFT", -6, 0)
+    end
+    local _, Select = skin.Tabs(f, { { "chat", "Chat", 56 }, { "stats", "Stats", 56 }, { "deaths", "Deaths", 60 },
+        { "race", "Level race", 80 }, { "settings", "Settings", 70 } }, selectPage, f.blizzard and 10 or 150, -7 - top)
+    selectTab = Select
 
-    -- left: framed chat with a scrollbar, input below
-    local cp = inset(f)
-    cp:SetPoint("TOPLEFT", 10, -30); cp:SetPoint("BOTTOMLEFT", 10, 40); cp:SetWidth(348)
+    f.pages = {}
+    for _, name in ipairs({ "chat", "stats", "settings" }) do
+        local page = CreateFrame("Frame", nil, f)
+        page:SetPoint("TOPLEFT", 8, -40 - top); page:SetPoint("BOTTOMRIGHT", -8, 8)
+        page:Hide()
+        f.pages[name] = page
+    end
+    addon.BuildStats(f.pages.stats, width)
+    addon.BuildSettings(f.pages.settings)
+
+    -- chat page, right: every guild with its online players
+    local chatPage = f.pages.chat
+    f.list = skin.List(chatPage, 20, fillRow, createRow)
+    f.list:SetPoint("TOPRIGHT", 0, 0); f.list:SetPoint("BOTTOMRIGHT", 0, 0); f.list:SetWidth(190)
+    f.note = skin.Label(f.list, "GameFontHighlight", colors.muted)
+    f.note:SetPoint("TOPLEFT", 8, -8); f.note:SetWidth(168); f.note:SetJustifyH("LEFT"); f.note:SetWordWrap(true)
+    f.note:SetText("No TCGc:/TCGp: config found in Guild Info (see README).")
+
+    -- chat page, left: chat with a slim scrollbar, input below
+    local cp = CreateFrame("Frame", nil, chatPage)
+    cp:SetPoint("TOPLEFT", 0, 0); cp:SetPoint("BOTTOMLEFT", 0, 32); cp:SetPoint("RIGHT", f.list, "LEFT", -8, 0)
+    skin.Surface(cp, "BACKGROUND", colors.panel)
     chat = CreateFrame("ScrollingMessageFrame", nil, cp)
-    chat:SetPoint("TOPLEFT", 8, -8); chat:SetPoint("BOTTOMRIGHT", -28, 8)
+    chat:SetPoint("TOPLEFT", 8, -8); chat:SetPoint("BOTTOMRIGHT", -16, 8)
     chat:SetFontObject(ChatFontNormal); chat:SetJustifyH("LEFT")
     chat:SetFading(false); chat:SetMaxLines(500); chat:SetHyperlinksEnabled(true)
     chat:EnableMouseWheel(true)
-    local bar = CreateFrame("Slider", nil, cp, "UIPanelScrollBarTemplate")
-    bar:SetPoint("TOPRIGHT", -6, -24); bar:SetPoint("BOTTOMRIGHT", -6, 24)
-    bar:SetValueStep(1); bar.scrollStep = 3
+    local bar = CreateFrame("Slider", nil, cp)
+    bar:SetOrientation("VERTICAL")
+    bar:SetPoint("TOPRIGHT", -2, -2); bar:SetPoint("BOTTOMRIGHT", -2, 2); bar:SetWidth(6)
+    bar:SetValueStep(1); bar:SetObeyStepOnDrag(true); bar:EnableMouse(true)
+    local thumb = bar:CreateTexture(nil, "ARTWORK")
+    thumb:SetSize(6, 24); skin.Fill(thumb, colors.bar)
+    bar:SetThumbTexture(thumb)
     local syncing
     function ThreeCrownsGuild_SyncBar() -- value 0 = oldest line at the top, max = newest at the bottom
         local max = chat.GetMaxScrollRange and chat:GetMaxScrollRange() or chat:GetNumMessages()
@@ -732,26 +788,11 @@ local function createUI()
     chat:SetScript("OnHyperlinkClick", function(_, link, text, button) SetItemRef(link, text, button) end)
     for _, rec in ipairs(db.history) do chat:AddMessage(render(rec)) end
     ThreeCrownsGuild_SyncBar()
-    local eb = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    eb:SetPoint("BOTTOMLEFT", 18, 12); eb:SetSize(334, 24)
-    eb:SetAutoFocus(false); eb:SetMaxBytes(220)
+    local eb = editBox(chatPage, 300)
+    eb:SetPoint("BOTTOMLEFT", 0, 0); eb:SetPoint("RIGHT", cp, "RIGHT", 0, 0); eb:SetMaxBytes(220)
     eb:SetScript("OnEnterPressed", function(s) chatInput(sendChat, s:GetText()); s:SetText("") end)
-    eb:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
 
-    -- right: framed list of every guild with its online players, with its own scrollbar
-    local rp = inset(f)
-    rp:SetPoint("TOPLEFT", 366, -30); rp:SetPoint("BOTTOMRIGHT", -10, 12)
-    local sf = CreateFrame("ScrollFrame", nil, rp, "UIPanelScrollFrameTemplate")
-    sf:SetPoint("TOPLEFT", 6, -6); sf:SetPoint("BOTTOMRIGHT", -28, 6)
-    content = CreateFrame("Frame", nil, sf)
-    content:SetSize(148, 1); sf:SetScrollChild(content)
-    pool = {}
-    f.note = rp:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    f.note:SetPoint("TOPLEFT", 10, -10); f.note:SetWidth(140); f.note:SetJustifyH("LEFT")
-    f.note:SetText("No TCGc:/TCGp: config found in Guild Info (see README).")
-
-    f:SetScript("OnShow", function() requestWho(); ThreeCrownsGuild_Refresh() end)
-    f:Hide() -- new frames start shown; open() shows it (and fires OnShow)
+    f:SetScript("OnShow", function() requestWho(); selectPage(f.key) end)
 end
 
 local function open(host) -- host: guild window to sit next to, nil = wherever it was
@@ -764,6 +805,13 @@ end
 local function toggle(host)
     if f and f:IsShown() and (not host or dock == host) then f:Hide() else open(host) end
 end
+
+function addon.OpenWindow(key) -- "chat", "stats", "deaths", "race" or "settings"
+    open()
+    selectPage(key)
+end
+addon.Toggle = toggle
+function addon.OpenSettings() addon.OpenWindow("settings") end
 
 -- An icon in Blizzard's guild windows (Guild & Communities, or the old Guild tab) that opens
 -- our window next to them. Only hooks and our own child button: Blizzard's frames stay untouched.
@@ -955,13 +1003,16 @@ ev:SetScript("OnEvent", function(_, event, ...)
         db.syncDefaultOffApplied = true
         if db.lfm == nil then db.lfm = true end
         if db.surname == nil then db.surname = true end
+        if db.minimapButton == nil then db.minimapButton = true end
         db.history = db.history or {}
         db.nicks = db.nicks or {}
+        if addon then addon.db = db; db.positions = db.positions or {} end -- Skin.lua and Settings.lua read these
         joinAt = GetTime() + JOIN_DELAY -- let General/Trade take their channel numbers first
         if IsInGuild() then (C_GuildInfo and C_GuildInfo.GuildRoster or GuildRoster)() end
         C_Timer.NewTicker(10, tick)
         if isTBC then pcall(setupInput) end
         pcall(scan) -- a problem with Blizzard's guild window must never stop the rest
+        if addon and addon.RefreshMinimap then pcall(addon.RefreshMinimap) end
         if _G.FriendsFrame then pcall(FriendsFrame.HookScript, FriendsFrame, "OnShow", scan) end -- old Guild tab is built late
         local syncStatus = db.sync and (GREEN .. "on") or "|cffff6060off"
         print(GREEN .. "[TCG]|r Sync " .. syncStatus .. "|r. /tcg help for chat. /tc help for guild tools.")
@@ -977,6 +1028,9 @@ ev:SetScript("OnEvent", function(_, event, ...)
 end)
 
 SLASH_THREECROWNSGUILD1 = "/tcg"
+-- Everything /tc does also works with /tcg, except hide and show: a chat message "show" must never
+-- switch position sharing. Use /tc hide, /tc show, or the settings tab for those.
+local TOOLS = { who = true, status = true, roster = true, lfm = true, stats = true, deaths = true, race = true }
 SlashCmdList.THREECROWNSGUILD = function(msg)
     msg = strtrim(msg)
     local command = msg:lower()
@@ -985,13 +1039,30 @@ SlashCmdList.THREECROWNSGUILD = function(msg)
         db[key] = (val == "on")
         if key == "surname" then ThreeCrownsGuild_Refresh(); refreshChat() end
         print(GREEN .. "[TCG]|r " .. key .. " " .. val)
+    elseif command == "settings" then
+        addon.OpenSettings()
+    elseif command == "window" or command:match("^window%s") then
+        local arg = command:match("^window%s+(%S+)")
+        local n = tonumber(arg)
+        if arg == "default" then setChatWindow(nil) elseif n and chatWindowName(n) then setChatWindow(n) end
+        if arg and (arg == "default" or n and chatWindowName(n)) then
+            print(GREEN .. "[TCG]|r Chat is printed in: "
+                .. (db.chatWindow and chatWindowName(db.chatWindow) or "the default chat window"))
+        else
+            print(GREEN .. "[TCG]|r Chat windows (use /tcg window <number> or /tcg window default):")
+            for i = 1, NUM_CHAT_WINDOWS do
+                local name = chatWindowName(i)
+                if name then print(("%d %s%s"):format(i, name, db.chatWindow == i and " (selected)" or "")) end
+            end
+        end
     elseif command == "help" then
         print(GREEN .. "[TCG]|r /tcg opens or closes shared chat. /tcg <message> sends a message.")
         print("/tcg sync on enables guild chat forwarding. /tcg sync off disables it.")
         print("Use /tcg tag, echo, or surname with on or off to change chat display settings.")
-    elseif command == "who" or command == "status" or command == "roster" or command == "lfm"
-        or command:match("^lfm%s") then
-        print(GREEN .. "[TCG]|r Use /tc " .. msg .. ".")
+        print("/tcg settings opens the settings tab. /tcg stats, deaths, or race open the stats tabs.")
+        print("/tcg window lists your chat windows for echoed chat. /tcg who, status, roster, lfm, pins, and share work as /tc does.")
+    elseif TOOLS[command] or command:match("^lfm%s") or command:match("^pins%s+%a+$") or command:match("^share%s+%a+$") then
+        SlashCmdList.THREECROWNSGUILDTOOLS(msg)
     elseif msg == "" then
         chatInput(toggle)
     else
@@ -1007,6 +1078,8 @@ SlashCmdList.THREECROWNSGUILDTOOLS = function(msg)
     if key == "lfm" and (val == "on" or val == "off") then
         db.lfm = val == "on"
         print(GREEN .. "[TCG]|r lfm " .. val)
+    elseif command == "settings" then
+        addon.OpenSettings()
     elseif command == "lfm" then
         openLFM()
     elseif command:match("^lfm ") then
@@ -1041,7 +1114,7 @@ SlashCmdList.THREECROWNSGUILDTOOLS = function(msg)
     elseif addon and addon.GuildCommand and addon.GuildCommand(command) then
         return
     elseif key == "sync" or key == "tag" or key == "echo" or key == "surname" then
-        print(GREEN .. "[TCG]|r Use /tcg " .. msg .. ".")
+        SlashCmdList.THREECROWNSGUILD(msg)
     else
         print(GREEN .. "[TCG]|r See /tc help for guild tools or /tcg help for chat.")
     end

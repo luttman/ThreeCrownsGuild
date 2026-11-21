@@ -18,7 +18,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y lua5.1
       - name: Check Lua syntax and run tests
         run: |
-          luac5.1 -p ThreeCrownsGuild.lua GuildMap.lua GuildStats.lua
+          luac5.1 -p ThreeCrownsGuild.lua GuildMap.lua GuildStats.lua Skin.lua Settings.lua Minimap.lua
           lua5.1 tests/name_display.lua
           lua5.1 tests/forever_only.lua
           lua5.1 tests/guild_sync.lua

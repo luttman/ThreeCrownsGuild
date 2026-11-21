@@ -52,7 +52,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.GetRealZoneText = function() return "Test Zone" end
     env.RAID_CLASS_COLORS = {}
     env.DEFAULT_CHAT_FRAME = { AddMessage = function() end }
-    env.Ambiguate = function(name) return name:gsub("%-.*", "") end
+    env.Ambiguate = function(name) return ((name or ""):gsub("%-.*", "")) end
     env.strsplit = function(separator, text, limit)
         local parts = {}
         while #parts < limit - 1 do
@@ -142,6 +142,11 @@ for _, client in ipairs({ "forever", "tbc" }) do
     local guildStatsChunk = assert(loadfile("GuildStats.lua"))
     setfenv(guildStatsChunk, env)
     guildStatsChunk("ThreeCrownsGuild", addon)
+    for _, name in ipairs({ "Skin.lua", "Settings.lua", "Minimap.lua" }) do
+        local shared = assert(loadfile(name))
+        setfenv(shared, env)
+        shared("ThreeCrownsGuild", addon)
+    end
     chunk("ThreeCrownsGuild", addon)
     assert(env.SLASH_THREECROWNSGUILD1 == "/tcg" and env.SLASH_THREECROWNSGUILDTOOLS1 == "/tc", client)
     assert(type(env.SlashCmdList.THREECROWNSGUILD) == "function", client)
@@ -181,8 +186,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     assert(help:find("/tcg sync on", 1, true) and help:find("/tcg sync off", 1, true), client .. ": missing sync help")
     assert(#sent == beforeHelp and #env.GuildFriendsDB.history == 0, client .. ": help was sent as shared chat")
     env.SlashCmdList.THREECROWNSGUILDTOOLS("Hello")
-    env.SlashCmdList.THREECROWNSGUILDTOOLS("sync off")
-    env.SlashCmdList.THREECROWNSGUILD("who")
+    env.SlashCmdList.THREECROWNSGUILD("roster")
     assert(#sent == beforeHelp and env.GuildFriendsDB.sync, client .. ": command prefixes still act as aliases")
     env.SlashCmdList.THREECROWNSGUILD("Hello")
     hardwareInput = false
@@ -338,16 +342,10 @@ for _, client in ipairs({ "forever", "tbc" }) do
 
     -- LFM: a centered notice for incoming requests, role detection on send
     local texts = {}
-    local function widget()
-        return setmetatable({}, { __index = function(_, key)
-            if not key:match("^%u") or key == "TitleText" then return nil end -- methods are capitalized, fields are not
-            return function(self, value)
-                if key == "SetText" then texts[#texts + 1] = value end
-                return self
-            end
-        end })
-    end
-    env.CreateFrame = widget
+    local fake = dofile("tests/fake.lua").new({ globals = env, onText = function(value) texts[#texts + 1] = value end })
+    env.ChatFontNormal = { GetFont = function() return "font.ttf" end }
+    env.GetCursorPosition = function() return 0, 0 end
+    env.CreateFrame = fake.CreateFrame
     env.UISpecialFrames, env.STANDARD_TEXT_FONT, env.UIFrameFadeOut = {}, "font", function() end
     env.UnitExists, env.IsInInstance, env.PlaySound = function() return true end, function() return false end, function() end
     local function lfmIn(body)
@@ -386,6 +384,130 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm Again")
     hardwareInput = false
     assert(#sent == before + 1, client .. ": LFM sent twice within 30 seconds")
+
+    -- echoed chat and LFM go to the chosen chat window, found by number (a renamed tab still works)
+    local defaultLines, chosenLines, windowShown, windowName = 0, {}, true, "General"
+    env.DEFAULT_CHAT_FRAME.AddMessage = function() defaultLines = defaultLines + 1 end
+    env.ChatFrame1.AddMessage = function(_, text) chosenLines[#chosenLines + 1] = text end
+    env.GetChatWindowInfo = function(i)
+        if i ~= 1 then return "" end
+        return windowName, 14, 1, 1, 1, 1, windowShown, false, nil
+    end
+    local function chatIn(text)
+        if client == "forever" then
+            receive("TestChannel", "GF1@" .. env.C_EncodingUtil.EncodeBase64("C#G2#MAGE;" .. text), "Anna-Svensson")
+        else
+            receive("TestChannel", "GF1#C#G2#MAGE;" .. text)
+        end
+    end
+    local function chatCall(command) env.SlashCmdList.THREECROWNSGUILD(command) end
+    chatIn("one")
+    assert(defaultLines == 1 and #chosenLines == 0, client .. ": echo did not default to the default chat frame")
+    chatCall("window 5")
+    assert(env.GuildFriendsDB.chatWindow == nil, client .. ": selected a chat window that does not exist")
+    chatCall("window 1")
+    assert(env.GuildFriendsDB.chatWindow == 1, client)
+    chatIn("two")
+    assert(defaultLines == 1 and #chosenLines == 1 and chosenLines[1]:find("two", 1, true), client .. ": echo ignored the chosen window")
+    time = time + 11
+    lfmIn("1,0,0;Mara;Bob")
+    assert(#chosenLines == 2 and chosenLines[2]:find("[LFM]", 1, true), client .. ": LFM ignored the chosen window")
+    windowName = "Renamed"
+    chatIn("three")
+    assert(#chosenLines == 3 and defaultLines == 1, client .. ": renaming the tab lost the window")
+    env.GuildFriendsDB.alsoDefault = true
+    chatIn("both")
+    assert(#chosenLines == 4 and defaultLines == 2, client .. ": 'also default' did not print in both windows")
+    env.GuildFriendsDB.alsoDefault = nil
+    defaultLines = defaultLines - 1
+    windowShown = false
+    chatIn("four")
+    assert(#chosenLines == 4 and defaultLines == 2, client .. ": a closed window kept the messages")
+    windowShown = true
+    chatCall("window default")
+    assert(env.GuildFriendsDB.chatWindow == nil, client)
+
+    -- the windows are built with the shared skin: drag area above the window, buttons above the drag area
+    fake.checkLevels(env.ThreeCrownsGuildLFM, client .. ": LFM window")
+    env.GetNumGuildMembers = function() return 1 end
+    env.GetGuildRosterInfo = function() return "Anna-Realm", nil, nil, 70, nil, "Zone", nil, nil, true, nil, "MAGE" end
+    env.SlashCmdList.THREECROWNSGUILD("") -- opens the main window
+    local main = assert(env.ThreeCrownsGuildFrame, client .. ": main window was not built")
+    hardwareInput = true
+    main.scripts.OnShow(main)
+    hardwareInput = false
+    fake.checkLevels(main, client .. ": main window")
+    assert(main.list.entries[1] and main.list.entries[1].tag == "G1", client .. ": roster list has no guild header")
+    assert(main.list.entries[2] and main.list.entries[2].who == "Anna", client .. ": roster list has no player row")
+    main.list.rows[1].scripts.OnClick(main.list.rows[1], "LeftButton") -- fold the guild
+    assert(#main.list.entries == 1, client .. ": a folded guild still lists its players")
+    main.hooks.OnDragStart(main) -- a drag must not error (it detaches the window from the guild window)
+    -- one window, five tabs: every page is reachable from the slash commands and the minimap button
+    local function shownPage()
+        local shown
+        for name, page in pairs(main.pages) do
+            if page.shown then assert(not shown, client .. ": two pages are shown"); shown = name end
+        end
+        return shown
+    end
+    assert(main.key == "chat" and shownPage() == "chat", client .. ": the window did not open on the chat page")
+    for _, tab in ipairs({ "Chat", "Stats", "Deaths", "Level race", "Settings" }) do
+        local found
+        for _, text in ipairs(texts) do found = found or text == tab end
+        assert(found, client .. ": missing tab " .. tab)
+    end
+    addon.OpenWindow("deaths")
+    assert(main.key == "deaths" and shownPage() == "stats", client .. ": the deaths tab did not open")
+    addon.OpenWindow("stats")
+    assert(main.key == "stats" and shownPage() == "stats", client .. ": the stats tab did not open")
+    env.SlashCmdList.THREECROWNSGUILD("settings")
+    assert(main.key == "settings" and shownPage() == "settings", client .. ": /tcg settings did not open the settings tab")
+    addon.SetSetting("echo", false)
+    assert(env.GuildFriendsDB.echo == false and not addon.GetSetting("echo"), client .. ": setting was not saved")
+    addon.SetSetting("echo", true)
+    local picker = main.pages.settings.windows.rows[2]
+    picker.scripts.OnClick(picker)
+    assert(env.GuildFriendsDB.chatWindow == 1, client .. ": the list did not pick the chat window")
+    picker = main.pages.settings.windows.rows[1]
+    picker.scripts.OnClick(picker)
+    assert(env.GuildFriendsDB.chatWindow == nil, client .. ": the list did not go back to the default window")
+
+    -- /tcg takes the /tc commands, except hide and show (a chat message must not switch position sharing)
+    local original, forwarded = env.SlashCmdList.THREECROWNSGUILDTOOLS, nil
+    env.SlashCmdList.THREECROWNSGUILDTOOLS = function(message) forwarded = message end
+    hardwareInput = true
+    for _, command in ipairs({ "stats", "deaths", "race", "who", "status", "roster", "pins off", "share on", "lfm Karazhan" }) do
+        forwarded = nil
+        env.SlashCmdList.THREECROWNSGUILD(command)
+        assert(forwarded == command, client .. ": /tcg " .. command .. " was not handled like /tc")
+    end
+    for _, command in ipairs({ "hide", "show" }) do
+        forwarded = nil
+        env.SlashCmdList.THREECROWNSGUILD(command)
+        assert(forwarded == nil, client .. ": /tcg " .. command .. " was treated as a /tc command")
+    end
+    hardwareInput = false
+    env.SlashCmdList.THREECROWNSGUILDTOOLS = original
+    local before = env.GuildFriendsDB.surname
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("surname off")
+    assert(env.GuildFriendsDB.surname == false, client .. ": /tc surname did not reach /tcg")
+    env.GuildFriendsDB.surname = before
+
+    -- the minimap button
+    env.Minimap = fake.CreateFrame("Frame", "Minimap", env.UIParent)
+    addon.RefreshMinimap()
+    local button = assert(env.ThreeCrownsGuildMinimapButton, client .. ": minimap button was not built")
+    assert(button.shown, client .. ": minimap button is hidden by default")
+    button.scripts.OnClick(button, "LeftButton") -- the window is open: close it
+    assert(not main.shown, client .. ": left-click did not close the window")
+    button.scripts.OnClick(button, "LeftButton")
+    assert(main.shown, client .. ": left-click did not open the window")
+    button.scripts.OnClick(button, "RightButton")
+    assert(main.key == "settings", client .. ": right-click did not open the settings tab")
+    addon.SetSetting("minimapButton", false)
+    assert(not button.shown and env.GuildFriendsDB.minimapButton == false, client .. ": the setting did not hide the button")
+    addon.SetSetting("minimapButton", true)
+    assert(button.shown, client .. ": the setting did not show the button")
 
     env.GuildFriendsDB = { sync = false }
     frame.handler(frame, "PLAYER_LOGIN")
