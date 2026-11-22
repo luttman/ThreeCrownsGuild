@@ -910,6 +910,20 @@ local function tick()
     ThreeCrownsGuild_Refresh()
 end
 
+-- The client asks for a password when a join has none (its own rejoin at login) or a wrong one.
+-- Answer once with the Guild Info password; if that fails too, the prompt stays for the player.
+local lastPasswordTry = -math.huge
+if StaticPopup_Show and StaticPopup_Hide and hooksecurefunc then
+    hooksecurefunc("StaticPopup_Show", function(which, channel)
+        if which ~= "CHAT_CHANNEL_PASSWORD" or not (cfg.channel and cfg.password) then return end
+        if secret(channel) or type(channel) ~= "string" or channel:lower() ~= cfg.channel:lower() then return end
+        if GetTime() - lastPasswordTry < 30 then return end
+        lastPasswordTry = GetTime()
+        StaticPopup_Hide(which)
+        JoinChannelByName(cfg.channel, cfg.password)
+    end)
+end
+
 -- keep the transport channel out of the normal chat frames
 local function hideChannel(_, _, ...)
     local base = select(9, ...)

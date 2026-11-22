@@ -18,17 +18,22 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.SlashCmdList = {}
     env.OKAY = client == "forever" and "Okay" or nil
     env.StaticPopupDialogs = {}
-    env.StaticPopup_Show = function(key) popups[#popups + 1] = assert(env.StaticPopupDialogs[key]) end
+    local hiddenPopups = 0
+    env.StaticPopup_Show = function(key)
+        if key ~= "CHAT_CHANNEL_PASSWORD" then popups[#popups + 1] = assert(env.StaticPopupDialogs[key]) end
+    end
+    env.StaticPopup_Hide = function(key) if key == "CHAT_CHANNEL_PASSWORD" then hiddenPopups = hiddenPopups + 1 end end
     env.ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
     env.strtrim = function(text) return text:match("^%s*(.-)%s*$") end
     env.print = function(text) output[#output + 1] = text end
     env.GetTime = function() return time end
     env.IsInGuild = function() return false end
     env.GetGuildInfo = function() return "Test Guild" end
+    local guildInfo = "TCGc:TestChannel:pw\nTCGp:Test Guild:G1"
     local function getInfoText()
         assert(not inCombat and not chatLocked, "Read protected Guild Info during lockdown")
         guildInfoReads = guildInfoReads + 1
-        return "TCGc:TestChannel:pw\nTCGp:Test Guild:G1"
+        return guildInfo
     end
     if client == "forever" then
         env.C_GuildInfo = { GetInfoText = getInfoText }
@@ -63,7 +68,8 @@ for _, client in ipairs({ "forever", "tbc" }) do
         parts[#parts + 1] = text
         return unpack(parts)
     end
-    env.JoinChannelByName = function() end
+    local joins = {}
+    env.JoinChannelByName = function(channel, password) joins[#joins + 1] = { channel = channel, password = password } end
     env.UIParent, env.InCombatLockdown = {}, function() return inCombat end
     local worldClick
     env.WorldFrame = { HookScript = function(_, name, handler) if name == "OnMouseDown" then worldClick = handler end end }
@@ -178,6 +184,36 @@ for _, client in ipairs({ "forever", "tbc" }) do
     time = 20
     ticker()
     assert(guildInfoReads == 2 and removedChannel == "TestChannel", client .. ": deferred config was not applied")
+    -- login join: waits for the join delay, uses the configured channel and password, retries until it works
+    assert(#joins == 1 and joins[1].channel == "TestChannel" and joins[1].password == "pw",
+        client .. ": did not join the configured channel with its password exactly once after the delay")
+    time = 30
+    ticker()
+    assert(#joins == 2 and joins[2].channel == "TestChannel" and joins[2].password == "pw",
+        client .. ": a failed join was not retried with the password")
+    env.GetGuildInfo = function() return "Other Guild" end
+    time = 40
+    ticker()
+    assert(#joins == 2, client .. ": joined while not in a configured guild")
+    env.GetGuildInfo = function() return "Test Guild" end
+    guildInfo = "TCGc:ColonChannel:pa:ss\nTCGp:Test Guild:G1"
+    frame.handler(frame, "GUILD_ROSTER_UPDATE")
+    time = 50
+    ticker()
+    assert(#joins == 3 and joins[3].channel == "ColonChannel" and joins[3].password == "pa:ss",
+        client .. ": a changed channel or a password with a colon was not joined correctly")
+    guildInfo = "TCGc:TestChannel:pw\nTCGp:Test Guild:G1"
+    frame.handler(frame, "GUILD_ROSTER_UPDATE")
+    -- the client's own password prompt for our channel is answered once; a second prompt is left to the player
+    time = 60
+    env.StaticPopup_Show("CHAT_CHANNEL_PASSWORD", "Otherchannel")
+    assert(hiddenPopups == 0 and #joins == 3, client .. ": answered a prompt for another channel")
+    env.StaticPopup_Show("CHAT_CHANNEL_PASSWORD", "Testchannel")
+    assert(hiddenPopups == 1 and #joins == 4 and joins[4].channel == "TestChannel" and joins[4].password == "pw",
+        client .. ": the password prompt was not answered with the Guild Info password")
+    time = 70
+    env.StaticPopup_Show("CHAT_CHANNEL_PASSWORD", "Testchannel")
+    assert(hiddenPopups == 1 and #joins == 4, client .. ": a refused password was retried in a loop")
     channelID = 5
     hardwareInput = true
     local beforeHelp, firstHelpLine = #sent, #output + 1
@@ -522,5 +558,6 @@ for _, client in ipairs({ "forever", "tbc" }) do
     env.SlashCmdList.THREECROWNSGUILD("sync on")
     frame.handler(frame, "PLAYER_LOGIN")
     assert(env.GuildFriendsDB.sync == true and #popups == 1, client .. ": sync opt-in did not survive login")
+    assert(#joins == 4, client .. ": rejoined a channel it was already in")
 end
 print("Full addon startup and slash command checks passed (Forever + TBC).")
