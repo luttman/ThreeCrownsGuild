@@ -133,7 +133,8 @@ Without `CF_PROJECT_ID`, only the GitHub release is published, and the workflow 
 If a project ID is configured, an API token is also required. CurseForge may need to approve
 both the project and uploaded files before they become available.
 
-To publish a new version from the project folder, use a new version number each time:
+To publish a new version from the project folder, use a new version number each time. First, describe
+the changes in `CHANGELOG.md`, which is shown on GitHub and CurseForge:
 
 ```sh
 git add .
