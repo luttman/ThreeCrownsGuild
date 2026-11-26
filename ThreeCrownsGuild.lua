@@ -695,7 +695,14 @@ local function syncGuildChat(msg, guid)
             return
         end
     end
-    addChat(tag, ownChatName(), class, msg, true)
+end
+
+-- The window takes own guild chat straight from the game, so it also covers members without the addon.
+local function onGuildChat(msg, sender, guid)
+    local tag = myTag()
+    if not (db and tag) or secret(msg) or secret(sender) or secret(guid) then return end
+    local class = guid and GetPlayerInfoByGUID and select(2, GetPlayerInfoByGUID(guid))
+    addChat(tag, guid == UnitGUID("player") and ownChatName() or chatName(sender), class, msg, true)
 end
 
 do
@@ -742,7 +749,8 @@ local function onAddonMsg(text, sender, fromChannelChat)
         local part = guildParts[sender]
         if #part.msg >= part.length then
             guildParts[sender] = nil
-            if #part.msg == part.length then addChat(tag, name, part.class, part.msg, true) end
+            -- own guild is already shown by onGuildChat
+            if #part.msg == part.length and tag ~= myTag() then addChat(tag, name, part.class, part.msg, true) end
         end
         return
     elseif kind == "L" then
@@ -1089,7 +1097,7 @@ StaticPopupDialogs.THREECROWNSGUILD_SYNC_RESET = {
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_LOGOUT", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE",
-    "ZONE_CHANGED_NEW_AREA", "CHAT_MSG_ADDON", "CHAT_MSG_CHANNEL", "ADDON_LOADED" }) do ev:RegisterEvent(e) end
+    "ZONE_CHANGED_NEW_AREA", "CHAT_MSG_ADDON", "CHAT_MSG_CHANNEL", "CHAT_MSG_GUILD", "ADDON_LOADED" }) do ev:RegisterEvent(e) end
 ev:SetScript("OnEvent", function(_, event, ...)
     if event == "CHAT_MSG_CHANNEL" then
         local text, sender = ...
@@ -1098,6 +1106,9 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if cfg.channel and channel and channel:lower() == cfg.channel:lower() then
             receiveChannelPacket(text, sender)
         end
+    elseif event == "CHAT_MSG_GUILD" then
+        local msg, sender = ...
+        onGuildChat(msg, sender, (select(12, ...)))
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, text, dist, sender = ...
         if secret(text) or secret(sender) then return end

@@ -40,6 +40,7 @@ Write in guild chat (`/g`) as usual. The addon shares your own messages with add
 connected guilds. Synchronization is always on and you can't turn it off, so that the guilds
 can talk and play together as one community.
 Officer chat, regular whispers, and messages from players without the addon are not forwarded.
+The addon window shows all of your own guild's chat, including messages from members without the addon.
 All participants need version 0.2.0 or later for guild chat synchronization.
 
 Regular guild chat shows messages from your own guild.

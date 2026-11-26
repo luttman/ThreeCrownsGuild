@@ -162,7 +162,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     assert(type(env.SlashCmdList.THREECROWNSGUILD) == "function", client)
     assert(filters.CHAT_MSG_CHANNEL and filters.CHAT_MSG_CHANNEL_NOTICE, client)
     local frame = frames[#frames]
-    assert(frame.events.PLAYER_LOGIN and frame.events.CHAT_MSG_CHANNEL and not frame.events.CHAT_MSG_GUILD, client)
+    assert(frame.events.PLAYER_LOGIN and frame.events.CHAT_MSG_CHANNEL and frame.events.CHAT_MSG_GUILD, client)
     frame.handler(frame, "PLAYER_LOGIN")
     assert(#output == 1 and output[1]:find("/tcg help", 1, true), client .. ": missing login hint")
     assert(env.GuildFriendsDB.sync == false and output[1]:find("Sync |cffff6060off|r", 1, true),
@@ -251,9 +251,16 @@ for _, client in ipairs({ "forever", "tbc" }) do
         hardwareInput = false
         assert(#sent == initialSent + 3 and sent[2]:sub(1, 4) == "GF1+" and sent[3]:sub(1, 4) == "GF1-")
         receive("TestChannel", sent[3]) -- reject a continuation with no opening fragment
-        assert(#history == 3)
+        assert(#history == 2)
         for i = 2, #sent do receive("TestChannel", sent[i]) end
-        assert(#history == 4 and history[4].msg == msg and history[4].name == "Bob Realm", "Guild sync changed the text")
+        assert(#history == 2, "Own guild relay was shown on top of the game's guild chat")
+        local ownInfo = guildInfo
+        guildInfo = "TCGc:TestChannel:pw\nTCGp:Test Guild:G9" -- now the same packets come from another guild
+        frame.handler(frame, "GUILD_ROSTER_UPDATE")
+        for i = 2, #sent do receive("TestChannel", sent[i]) end
+        assert(#history == 3 and history[3].msg == msg and history[3].name == "Bob Realm", "Guild sync changed the text")
+        guildInfo = ownInfo
+        frame.handler(frame, "GUILD_ROSTER_UPDATE")
         time = 80
         ticker()
         assert(#sent == initialSent + 3 and blockedCalls == 0 and #whispers > 0, "Idle Forever presence must whisper")
@@ -348,6 +355,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
         hardwareInput = true
         env.SendChatMessage("Guild hello", "GUILD")
         hardwareInput = false
+        frame.handler(frame, "CHAT_MSG_GUILD", "Guild hello", "Anna-Realm")
         assert(#env.GuildFriendsDB.history == 3 and env.GuildFriendsDB.history[3].msg == "Guild hello")
         local afterGuild = #sent
         env.SlashCmdList.THREECROWNSGUILD("sync off")
