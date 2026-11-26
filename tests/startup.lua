@@ -4,8 +4,9 @@ local file = assert(io.open("ThreeCrownsGuild.lua", "r"))
 local source = file:read("*a")
 file:close()
 -- Most checks run unlocked, so the rollback path stays tested. The lock is checked at the end.
-local unlocked, found = source:gsub("local SYNC_LOCKED = true", "local SYNC_LOCKED = false")
+local unlocked, found = source:gsub("local SYNC_LOCKED = %a+", "local SYNC_LOCKED = false")
 assert(found == 1, "SYNC_LOCKED switch not found")
+local lockedSource = source:gsub("local SYNC_LOCKED = %a+", "local SYNC_LOCKED = true")
 
 for _, client in ipairs({ "forever", "tbc" }) do
     local filters, frames, output, sent, whispers, popups = {}, {}, {}, {}, {}, {}
@@ -424,6 +425,56 @@ for _, client in ipairs({ "forever", "tbc" }) do
     hardwareInput = false
     assert(#sent == before + 1, client .. ": LFM sent twice within 30 seconds")
 
+    -- the dungeon list: filtered by level until "Show all level ranges" is ticked
+    env.UnitLevel = function() return 60 end
+    env.SlashCmdList.THREECROWNSGUILDTOOLS("lfm")
+    local dialog = env.ThreeCrownsGuildLFM
+    local list = dialog.list
+    assert(not dialog.menu.shown, client .. ": the dungeon list was open before the button was clicked")
+    dialog.dropdown.scripts.OnClick(dialog.dropdown)
+    assert(dialog.menu.shown, client .. ": the Dungeons button did not open the list")
+    assert(#list.entries == 12 and list.entries[1][1] == "Blackmaw Hold" and list.entries[12][1] == "Upper Blackrock Spire",
+        client .. ": wrong dungeons for level 60")
+    dialog.all.scripts.OnClick(dialog.all)
+    assert(#list.entries == 34, client .. ": Show all level ranges did not list every dungeon")
+    local function tick(index) list.rows[index].scripts.OnClick(list.rows[index]) end
+    local function star(index) list.rows[index].star.scripts.OnClick(list.rows[index].star) end
+    star(6) -- Deadmines
+    assert(list.entries[1][1] == "Deadmines" and list.entries[2][1] == "Alcaz Prison" and #list.entries == 34
+        and env.GuildFriendsDB.favoriteDungeons.Deadmines, client .. ": a favorite was not saved and listed first")
+    star(1)
+    assert(list.entries[1][1] == "Alcaz Prison" and not env.GuildFriendsDB.favoriteDungeons.Deadmines,
+        client .. ": a favorite could not be removed")
+    local function pressSend()
+        time = time + 31
+        hardwareInput = true
+        dialog.send.scripts.OnClick(dialog.send)
+        hardwareInput = false
+    end
+    before = #sent
+    pressSend()
+    assert(#sent == before and output[#output]:find("select a dungeon", 1, true), client .. ": sent LFM without a dungeon")
+    for index = 1, 20 do tick(index) end
+    pressSend()
+    assert(#sent == before and output[#output]:find("select fewer", 1, true), client .. ": sent a cut-off dungeon list")
+    for index = 1, 20 do tick(index) end
+    tick(3) -- Blackmaw Hold
+    tick(6) -- Deadmines, outside the level range
+    assert(dialog.dropdown.label.text == "Dungeons (2 selected)", client .. ": the button does not count the picks")
+    dialog.dropdown.scripts.OnClick(dialog.dropdown)
+    assert(not dialog.menu.shown, client .. ": the Dungeons button did not close the list")
+    dialog.all.GetChecked = function() return false end
+    dialog.all.scripts.OnClick(dialog.all)
+    assert(#list.entries == 13, client .. ": a ticked dungeon was hidden by the level filter")
+    pressSend()
+    lfmPayload = client == "forever" and env.C_EncodingUtil.DecodeBase64(sent[#sent]:sub(5)) or sent[#sent]
+    assert(#sent == before + 1 and lfmPayload:find(";Blackmaw Hold, Deadmines;Anna", 1, true),
+        client .. ": picked dungeons not sent")
+    assert(texts[#texts]:find("Blackmaw Hold, Deadmines", 1, true) and not dialog.shown,
+        client .. ": picked dungeons missing from the notice")
+    fake.checkLevels(dialog, client .. ": LFM dialog")
+    env.UnitLevel = function() return 70 end
+
     -- echoed chat and LFM go to the chosen chat window, found by number (a renamed tab still works)
     local defaultLines, chosenLines, windowShown, windowName = 0, {}, true, "General"
     env.DEFAULT_CHAT_FRAME.AddMessage = function() defaultLines = defaultLines + 1 end
@@ -564,7 +615,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
     assert(#joins == 4, client .. ": rejoined a channel it was already in")
 
     -- the shipped, locked build: on for everyone, saved choice kept, no way to turn it off
-    local lockedChunk = assert(compile(source))
+    local lockedChunk = assert(compile(lockedSource))
     setfenv(lockedChunk, env)
     lockedChunk("ThreeCrownsGuild", addon)
     local lockedFrame = frames[#frames]

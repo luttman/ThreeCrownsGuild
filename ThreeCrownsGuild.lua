@@ -486,10 +486,90 @@ local function editBox(parent, width)
     return box
 end
 
+-- { name, lowest level, highest level }
+local DUNGEONS = {
+    { "Alcaz Prison", 48, 55 }, { "Blackfathom Deeps", 24, 32 }, { "Blackmaw Hold", 55, 60 },
+    { "Blackrock Depths", 52, 60 }, { "City of Dalaran", 28, 35 }, { "Deadmines", 17, 26 },
+    { "Dire Maul (East)", 54, 60 }, { "Dire Maul (North)", 56, 60 }, { "Dire Maul (West)", 56, 60 },
+    { "Excavation Site: Wetlands", 26, 33 }, { "Gnomeregan", 29, 38 }, { "Hall of Thanes", 13, 20 },
+    { "Krol'dok Stronghold", 40, 47 }, { "Lower Blackrock Spire", 55, 60 }, { "Maraudon", 46, 55 },
+    { "Ragefire Chasm", 13, 18 }, { "Razorfen Downs", 37, 46 }, { "Razorfen Kraul", 29, 38 },
+    { "Ruins of Lordaeron", 15, 22 }, { "Scarlet Armory", 36, 44 }, { "Scarlet Cathedral", 38, 46 },
+    { "Scarlet Graveyard", 30, 38 }, { "Scarlet Library", 33, 41 }, { "Scholomance", 58, 60 },
+    { "Shadowfang Keep", 20, 30 }, { "Stratholme (Main Gate)", 58, 60 }, { "Stratholme (Service Gate)", 58, 60 },
+    { "Sunken Temple", 50, 60 }, { "The Drowned City", 35, 42 }, { "The Shaper's Terrace", 58, 60 },
+    { "Uldaman", 41, 51 }, { "Upper Blackrock Spire", 59, 60 }, { "Wailing Caverns", 15, 24 },
+    { "Zul'Farrak", 44, 54 },
+}
+local picked = {} -- dungeon name -> true, kept until /reload
+
+-- the list is folded away, so the button says how many are ticked
+local function labelDungeons()
+    local count = 0
+    for _ in pairs(picked) do count = count + 1 end
+    lfmDialog.dropdown.label:SetText(count > 0 and ("Dungeons (%d selected)"):format(count) or "Dungeons")
+end
+
+local function listDungeons()
+    local level, entries, others = UnitLevel("player"), {}, {}
+    for _, dungeon in ipairs(DUNGEONS) do
+        -- a ticked dungeon stays listed, so nothing is sent that the player cannot see
+        if lfmDialog.showAll or picked[dungeon[1]] or (level >= dungeon[2] and level <= dungeon[3]) then
+            local group = db.favoriteDungeons[dungeon[1]] and entries or others
+            group[#group + 1] = dungeon
+        end
+    end
+    for _, dungeon in ipairs(others) do entries[#entries + 1] = dungeon end -- favorites come first
+    lfmDialog.list:SetEntries(entries)
+    labelDungeons()
+end
+
+local function pickedDungeons()
+    local names = {}
+    for _, dungeon in ipairs(DUNGEONS) do
+        if picked[dungeon[1]] then names[#names + 1] = dungeon[1] end
+    end
+    return table.concat(names, ", ")
+end
+
+local function fillDungeon(row, dungeon)
+    row.text:SetText(("%s (%d - %d)"):format(dungeon[1], dungeon[2], dungeon[3]))
+    row.check:SetChecked(picked[dungeon[1]] == true)
+    local favorite = db.favoriteDungeons[dungeon[1]] == true
+    row.star.icon:SetDesaturated(not favorite)
+    row.star.icon:SetAlpha(favorite and 1 or 0.3)
+end
+
+local function createDungeon(row)
+    row.check = addon.Skin.Check(row, "", function() end)
+    row.check:SetSize(18, 18)
+    row.check:SetPoint("LEFT", 4, 0)
+    row.check:EnableMouse(false) -- the whole row toggles
+    row.text:SetPoint("LEFT", 26, 0)
+    row:SetScript("OnClick", function(self)
+        local name = self.entry[1]
+        picked[name] = not picked[name] or nil
+        self.check:SetChecked(picked[name] == true)
+        labelDungeons()
+    end)
+    row.star = CreateFrame("Button", nil, row)
+    row.star:SetSize(14, 14)
+    row.star:SetPoint("RIGHT", -4, 0)
+    row.star.icon = row.star:CreateTexture(nil, "ARTWORK")
+    row.star.icon:SetAllPoints()
+    row.star.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_1") -- the yellow star
+    row.star:SetScript("OnClick", function()
+        local name = row.entry[1]
+        db.favoriteDungeons[name] = not db.favoriteDungeons[name] or nil
+        listDungeons()
+    end)
+    row.value:SetPoint("RIGHT", -22, 0) -- keeps long names clear of the star
+end
+
 local function showToast(text)
     if not toast then
         toast = CreateFrame("Frame", nil, UIParent)
-        toast:SetSize(900, 100); toast:SetPoint("CENTER", 0, 150)
+        toast:SetSize(900, 200); toast:SetPoint("CENTER", 0, 150)
         toast:SetFrameStrata("FULLSCREEN_DIALOG"); toast:EnableMouse(false)
         toast.text = toast:CreateFontString(nil, "OVERLAY")
         toast.text:SetFont(STANDARD_TEXT_FONT, 26, "OUTLINE")
@@ -514,13 +594,18 @@ end
 
 local function sendLFM(dungeon, tank, healer, dps)
     dungeon = strtrim(clean(dungeon))
-    if dungeon == "" then print(GREEN .. "[TCG]|r LFM: enter a dungeon name."); return false end
+    if dungeon == "" then print(GREEN .. "[TCG]|r LFM: select a dungeon."); return false end
     if tank + healer + dps == 0 then print(GREEN .. "[TCG]|r LFM: the party is already full."); return false end
     if GetTime() - lastLFM < 30 then print(GREEN .. "[TCG]|r LFM: wait a little before sending again."); return false end
     local names = select(4, missingRoles())
     for i, n in ipairs(names) do names[i] = clean(n) end
     local joined = table.concat(names, ",")
-    if send("L", ("%d,%d,%d;%s;%s"):format(tank, healer, dps, dungeon, joined)) then
+    local body = ("%d,%d,%d;%s;%s"):format(tank, healer, dps, dungeon, joined)
+    if #("L#" .. (myTag() or "") .. "#" .. body) > 250 then -- send() would cut it off
+        print(GREEN .. "[TCG]|r LFM: too many dungeons, select fewer.")
+        return false
+    end
+    if send("L", body) then
         lastLFM = GetTime()
         announceLFM(myTag(), UnitName("player"), tank, healer, dps, dungeon, joined) -- we get no echo
         return true
@@ -532,35 +617,55 @@ end
 local function openLFM()
     if not lfmDialog then
         local skin = addon.Skin
-        local d = skin.Window("ThreeCrownsGuildLFM", 290, 190, "Looking for more", "DIALOG")
+        local d = skin.Window("ThreeCrownsGuildLFM", 330, 140, "Looking for more", "DIALOG")
         lfmDialog = d
         local top = d.top
+        d:SetHeight(140 + top)
 
-        local label = skin.Label(d, "GameFontHighlight", skin.colors.text)
-        label:SetPoint("TOPLEFT", 18, -40 - top); label:SetText("Dungeon")
-        d.dungeon = editBox(d, 254)
-        d.dungeon:SetPoint("TOPLEFT", 18, -60 - top); d.dungeon:SetMaxBytes(60)
+        d.dropdown = skin.Button(d, "Dungeons", 294, function() d.menu:SetShown(not d.menu:IsShown()) end)
+        d.dropdown:SetPoint("TOPLEFT", 18, -40 - top)
+        local arrow = d.dropdown:CreateTexture(nil, "OVERLAY")
+        arrow:SetSize(18, 18); arrow:SetPoint("RIGHT", -3, 0)
+        arrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+
+        -- drops down over the role buttons, so it sits well above them and is opaque in every skin
+        d.menu = CreateFrame("Frame", nil, d)
+        d.menu:SetFrameLevel(d:GetFrameLevel() + 10)
+        d.menu:SetSize(296, 280); d.menu:SetPoint("TOPLEFT", 17, -63 - top)
+        d.menu:EnableMouse(true)
+        skin.Surface(d.menu, "BACKGROUND", { 0.055, 0.063, 0.073, 1 })
+        d.list = skin.List(d.menu, 18, fillDungeon, createDungeon)
+        d.list:SetPoint("TOPLEFT", 1, -1); d.list:SetSize(294, 252)
+        d.all = skin.Check(d.menu, "Show all level ranges", function(on) d.showAll = on; listDungeons() end)
+        d.all:SetPoint("TOPLEFT", 2, -255)
 
         -- click a role to cycle how many of it you still need
         local function need(name, max, x)
             local b
             b = skin.Button(d, name, 82, function() b:Set((b.n + 1) % (max + 1)) end)
-            b:SetPoint("TOPLEFT", x, -94 - top)
+            b:SetPoint("TOPLEFT", x, -72 - top)
             function b:Set(n) self.n = n; self.label:SetText(("%s: %d"):format(name, n)) end
             return b
         end
-        d.tank, d.healer, d.dps = need("Tank", 1, 18), need("Healer", 1, 104), need("DPS", 3, 190)
+        d.tank, d.healer, d.dps = need("Tank", 1, 18), need("Healer", 1, 124), need("DPS", 3, 230)
 
-        local sendButton = skin.Button(d, "Send to all guilds", 180, function()
+        d.send = skin.Button(d, "Send to all guilds", 180, function()
             local ok = false
-            chatInput(function() ok = sendLFM(d.dungeon:GetText(), d.tank.n, d.healer.n, d.dps.n) end)
+            chatInput(function() ok = sendLFM(pickedDungeons(), d.tank.n, d.healer.n, d.dps.n) end)
             if ok then d:Hide() end
         end)
-        sendButton:SetPoint("BOTTOM", 0, 12)
+        d.send:SetPoint("BOTTOM", 0, 12)
     end
     local tank, healer, dps = missingRoles()
     lfmDialog.tank:Set(tank); lfmDialog.healer:Set(healer); lfmDialog.dps:Set(dps)
-    if lfmDialog.dungeon:GetText() == "" and IsInInstance() then lfmDialog.dungeon:SetText(GetRealZoneText() or "") end
+    if not next(picked) and IsInInstance() then
+        local zone = GetRealZoneText()
+        for _, dungeon in ipairs(DUNGEONS) do
+            if dungeon[1] == zone then picked[zone] = true end
+        end
+    end
+    lfmDialog.menu:Hide()
+    listDungeons()
     lfmDialog:Show()
 end
 
@@ -1026,6 +1131,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if db.minimapButton == nil then db.minimapButton = true end
         db.history = db.history or {}
         db.nicks = db.nicks or {}
+        db.favoriteDungeons = db.favoriteDungeons or {}
         if addon then addon.db = db; db.positions = db.positions or {} end -- Skin.lua and Settings.lua read these
         joinAt = GetTime() + JOIN_DELAY -- let General/Trade take their channel numbers first
         if IsInGuild() then (C_GuildInfo and C_GuildInfo.GuildRoster or GuildRoster)() end

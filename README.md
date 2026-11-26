@@ -151,7 +151,13 @@ Click **LFM** in the addon window or use `/tc lfm`. The dialog fills in the role
 is missing, based on a five-player party: one tank, one healer, and three DPS. Click the role
 buttons to adjust the selection.
 
-Enter a dungeon and send the notification. All connected guilds receive a notification in the
+Click **Dungeons**, select one or more dungeons, and send the notification. The list shows the
+dungeons that match your level. Select **Show all level ranges** to see every dungeon. Click the
+star on a dungeon to mark it as a favorite. Favorites are listed first and are saved for your
+account. A notification has a size limit, so the addon asks you to select fewer dungeons if the
+selection doesn't fit.
+
+All connected guilds receive a notification in the
 middle of the screen, such as `Name1, Name2 are looking for Healer + 2 DPS`, with the dungeon
 and guild tag. The notification also appears in chat with a clickable player name.
 
