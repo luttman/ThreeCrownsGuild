@@ -19,13 +19,19 @@ local perColumn = math.ceil(#options / 2)
 local toggles, guildKeys = {}, {}
 for _, row in ipairs(options) do guildKeys[row[1]] = row[3] end
 
+local function locked(key) return key == "sync" and addon.syncLocked end
+
 function addon.GetSetting(key)
+    if locked(key) then return true end
     if guildKeys[key] then return addon.GetGuildSetting(key) end
     return addon.db and addon.db[key] == true
 end
 
 function addon.SetSetting(key, value)
-    if guildKeys[key] then
+    if locked(key) then
+        if not value then SlashCmdList.THREECROWNSGUILD("sync off") end -- prints why it stays on
+        value = true
+    elseif guildKeys[key] then
         addon.SetGuildSetting(key, value)
     else
         addon.db[key] = value
@@ -62,6 +68,7 @@ function addon.BuildSettings(parent)
         local check = skin.Check(page, row[2], function(value) addon.SetSetting(key, value) end)
         local column, line = math.floor((index - 1) / perColumn), (index - 1) % perColumn
         check:SetPoint("TOPLEFT", column * 372, -35 - line * 25)
+        if locked(key) then check:SetAlpha(0.5) end -- grayed, but a click still explains why
         toggles[key] = check
     end
     local label = skin.Label(page, "GameFontHighlight", skin.colors.text)

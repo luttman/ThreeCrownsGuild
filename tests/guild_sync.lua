@@ -47,7 +47,8 @@ local send = function(kind, body)
     return true
 end
 local init = [[
-local send, secretValue = ...
+local send, secretValue, SYNC_LOCKED = ...
+local SYNC_LOCKED_TEXT = "always on"
 local db = GuildFriendsDB
 local peers, rx = {}, {}
 local GREEN, HISTORY_MAX, JOIN_DELAY, PFX = "|cff40ff40", 200, 15, "GF1"
@@ -58,8 +59,9 @@ local function secret(value) return value == secretValue end
 local function chatName(sender) return Ambiguate(sender, "none") end
 local function ownChatName() return UnitName("player") end
 ]]
-local onAddonMsg, syncGuildChat = assert(compile(init .. chatCode .. events .. commands
-    .. "\nreturn onAddonMsg, syncGuildChat"))(send, secretValue)
+local build = assert(compile(init .. chatCode .. events .. commands
+    .. "\nreturn onAddonMsg, syncGuildChat"))
+local onAddonMsg, syncGuildChat = build(send, secretValue, false) -- unlocked: the rollback path
 frame.handler(nil, "PLAYER_LOGIN")
 assert(GuildFriendsDB.sync == false)
 local guildEvent = syncGuildChat
@@ -107,4 +109,13 @@ assert(#GuildFriendsDB.history == before, "Accepted expired or malformed fragmen
 failSend = true
 guildEvent("Failed", "own-guid")
 assert(#GuildFriendsDB.history == before, "Failed send was added to history")
+failSend = false
+local _, lockedSync = build(send, secretValue, true)
+frame.handler(nil, "PLAYER_LOGIN")
+GuildFriendsDB.sync = false
+SlashCmdList.THREECROWNSGUILD("sync off")
+assert(warnings[#warnings]:find("always on", 1, true), "No explanation for sync off")
+before = #packets
+lockedSync("Always", "own-guid")
+assert(#packets == before + 1 and GuildFriendsDB.sync == false, "Locked sync did not forward")
 io.write("Guild sync checks passed.\n")

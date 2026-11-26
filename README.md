@@ -37,11 +37,8 @@ The `TCG` prefix avoids conflicts with GreenWall. Older `GFc:`/`GFp:` and `MGc:`
 ## Shared chat
 
 Write in guild chat (`/g`) as usual. The addon shares your own messages with addon users in the
-connected guilds when synchronization is enabled. Synchronization is off by default. Use
-`/tcg sync on` to enable it or `/tcg sync off` to disable it. The addon saves this setting for your account.
-If sync was already on, your first login after this update turns it off and shows a notice.
-Disabling synchronization stops automatic forwarding of your own guild messages. You can still
-read shared messages and send messages manually with `/tcg text`.
+connected guilds. Synchronization is always on and you can't turn it off, so that the guilds
+can talk and play together as one community.
 Officer chat, regular whispers, and messages from players without the addon are not forwarded.
 All participants need version 0.2.0 or later for guild chat synchronization.
 
@@ -52,7 +49,6 @@ addon window. They are not forwarded into the server's guild chat.
 | Command | Action |
 |---|---|
 | `/tcg help` | Show chat commands |
-| `/tcg sync on\|off` | Enable or disable automatic forwarding of your own guild messages |
 | `/tcg` | Open or close the addon window |
 | `/tcg text` | Send a message to all connected guilds (displayed as `[TAG] Name: text`) |
 | `/tcg tag on\|off` | Show or hide guild tags in chat |

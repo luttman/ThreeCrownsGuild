@@ -3,6 +3,9 @@ local compile = loadstring or load
 local file = assert(io.open("ThreeCrownsGuild.lua", "r"))
 local source = file:read("*a")
 file:close()
+-- Most checks run unlocked, so the rollback path stays tested. The lock is checked at the end.
+local unlocked, found = source:gsub("local SYNC_LOCKED = true", "local SYNC_LOCKED = false")
+assert(found == 1, "SYNC_LOCKED switch not found")
 
 for _, client in ipairs({ "forever", "tbc" }) do
     local filters, frames, output, sent, whispers, popups = {}, {}, {}, {}, {}, {}
@@ -142,7 +145,7 @@ for _, client in ipairs({ "forever", "tbc" }) do
             return result
         end
     end
-    local chunk = assert(compile(source))
+    local chunk = assert(compile(unlocked))
     setfenv(chunk, env)
     local addon = {}
     local guildStatsChunk = assert(loadfile("GuildStats.lua"))
@@ -559,5 +562,28 @@ for _, client in ipairs({ "forever", "tbc" }) do
     frame.handler(frame, "PLAYER_LOGIN")
     assert(env.GuildFriendsDB.sync == true and #popups == 1, client .. ": sync opt-in did not survive login")
     assert(#joins == 4, client .. ": rejoined a channel it was already in")
+
+    -- the shipped, locked build: on for everyone, saved choice kept, no way to turn it off
+    local lockedChunk = assert(compile(source))
+    setfenv(lockedChunk, env)
+    lockedChunk("ThreeCrownsGuild", addon)
+    local lockedFrame = frames[#frames]
+    for _, candidate in ipairs(fake.frames) do
+        if candidate.scripts.OnEvent then lockedFrame = candidate end
+    end
+    env.GuildFriendsDB = { sync = true }
+    local popupsBefore = #popups
+    lockedFrame.scripts.OnEvent(lockedFrame, "PLAYER_LOGIN")
+    assert(addon.syncLocked and #popups == popupsBefore, client .. ": locked sync showed the reset popup")
+    assert(output[#output]:find("Sync |cff40ff40on|r", 1, true), client .. ": locked sync is not on at login")
+    env.GuildFriendsDB.sync = false
+    for _, command in ipairs({ "THREECROWNSGUILD", "THREECROWNSGUILDTOOLS" }) do
+        env.SlashCmdList[command]("sync off")
+        assert(output[#output]:find("always on", 1, true), client .. ": no explanation for sync off")
+    end
+    local lines = #output
+    addon.SetSetting("sync", false)
+    assert(#output == lines + 1 and addon.GetSetting("sync") and env.GuildFriendsDB.sync == false,
+        client .. ": the settings checkbox changed locked sync")
 end
 print("Full addon startup and slash command checks passed (Forever + TBC).")

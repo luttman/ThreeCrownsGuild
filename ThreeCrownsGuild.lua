@@ -15,6 +15,12 @@ local _, addon = ...
 local PFX, HEARTBEAT, EXPIRE, JOIN_DELAY, HISTORY_MAX = "GF1", 240, 600, 15, 200
 local ENCODED_CHUNK = 248 -- leaves room for the marker and splits Base64 on a four-byte boundary
 local GREEN = "|cff40ff40"
+-- Guild chat forwarding is forced on. Set to false to let players turn it off again: their saved
+-- choice (db.sync) is never overwritten while locked.
+local SYNC_LOCKED = true
+local SYNC_LOCKED_TEXT = "Guild chat sync is always on. We keep it on so that our guilds can talk "
+    .. "and play together as one community."
+if addon then addon.syncLocked = SYNC_LOCKED end -- Settings.lua reads this
 
 local secret = issecretvalue or function() return false end
 local db
@@ -570,7 +576,7 @@ local function onLFM(tag, name, body)
 end
 
 local function syncGuildChat(msg, guid)
-    if not db or not db.sync or secret(msg) or secret(guid) or guid ~= UnitGUID("player") then return end
+    if not db or not (SYNC_LOCKED or db.sync) or secret(msg) or secret(guid) or guid ~= UnitGUID("player") then return end
     local tag = myTag()
     if not tag or msg == "" then return end
     local _, class = UnitClass("player")
@@ -1028,9 +1034,9 @@ ev:SetScript("OnEvent", function(_, event, ...)
         pcall(scan) -- a problem with Blizzard's guild window must never stop the rest
         if addon and addon.RefreshMinimap then pcall(addon.RefreshMinimap) end
         if _G.FriendsFrame then pcall(FriendsFrame.HookScript, FriendsFrame, "OnShow", scan) end -- old Guild tab is built late
-        local syncStatus = db.sync and (GREEN .. "on") or "|cffff6060off"
+        local syncStatus = (SYNC_LOCKED or db.sync) and (GREEN .. "on") or "|cffff6060off"
         print(GREEN .. "[TCG]|r Sync " .. syncStatus .. "|r. /tcg help for chat. /tc help for guild tools.")
-        if syncReset then StaticPopup_Show("THREECROWNSGUILD_SYNC_RESET") end
+        if syncReset and not SYNC_LOCKED then StaticPopup_Show("THREECROWNSGUILD_SYNC_RESET") end
     elseif event == "PLAYER_LOGOUT" then
         send("X")
     elseif event == "ZONE_CHANGED_NEW_AREA" then
@@ -1049,7 +1055,9 @@ SlashCmdList.THREECROWNSGUILD = function(msg)
     msg = strtrim(msg)
     local command = msg:lower()
     local key, val = command:match("^(%a+)%s+(%a+)$")
-    if (key == "tag" or key == "echo" or key == "surname" or key == "sync") and (val == "on" or val == "off") then
+    if SYNC_LOCKED and key == "sync" and (val == "on" or val == "off") then
+        print(GREEN .. "[TCG]|r " .. SYNC_LOCKED_TEXT)
+    elseif (key == "tag" or key == "echo" or key == "surname" or key == "sync") and (val == "on" or val == "off") then
         db[key] = (val == "on")
         if key == "surname" then ThreeCrownsGuild_Refresh(); refreshChat() end
         print(GREEN .. "[TCG]|r " .. key .. " " .. val)
@@ -1071,7 +1079,8 @@ SlashCmdList.THREECROWNSGUILD = function(msg)
         end
     elseif command == "help" then
         print(GREEN .. "[TCG]|r /tcg opens or closes shared chat. /tcg <message> sends a message.")
-        print("/tcg sync on enables guild chat forwarding. /tcg sync off disables it.")
+        print(SYNC_LOCKED and SYNC_LOCKED_TEXT
+            or "/tcg sync on enables guild chat forwarding. /tcg sync off disables it.")
         print("Use /tcg tag, echo, or surname with on or off to change chat display settings.")
         print("/tcg settings opens the settings tab. /tcg stats, deaths, or race open the stats tabs.")
         print("/tcg window lists your chat windows for echoed chat. /tcg who, status, roster, lfm, pins, and share work as /tc does.")
